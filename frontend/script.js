@@ -404,9 +404,9 @@ document.addEventListener("DOMContentLoaded", () => {
         if (/\b(time|what time|samayam)\b/i.test(text)) return "time";
         if (/\b(weather|temperature|varsham)\b/i.test(text)) return "weather";
         if (/\b(timer|countdown|alarm)\b/i.test(text)) return "timer";
-        if (/\b(dice|roll|coin|flip|head|tail)\b/i.test(text)) return "dice";
+        if (/\b(dice|roll|coin|flip|heads?|tails?)\b/i.test(text)) return "dice";
         if (/\b(joke|funny)\b/i.test(text)) return "joke";
-        if (/\b(motivat|inspire|quote)\b/i.test(text)) return "motivation";
+        if (/\b(motivat\w*|inspir\w*|quotes?)\b/i.test(text)) return "motivation";
         if (/\b(tech news|ai news)\b/i.test(text)) return "techNews";
         if (/\b(translate|telugu lo)\b/i.test(text)) return "translate";
         if (/\b(currency|convert|exchange rate|rupees?|inr|dollar)\b/i.test(text)) return "currency";
@@ -434,6 +434,19 @@ document.addEventListener("DOMContentLoaded", () => {
     function isExplicitAction(text) {
         return /\b(open|launch|start|send|reply|message|tell|search|find|create|add|schedule|show|read|do)\b/i.test(text)
             || /చెప్పు|పంపు|చూడు|వెతుకు|తెరువు|చేయి|చెయ్/i.test(text);
+    }
+
+    // Same verb list as the backend (backend/everyday-tools.js explicit()), so tool
+    // buttons like "Give me motivation" or "Roll a dice" reach the backend.
+    function isExplicitToolRequest(text) {
+        return /\b(show|tell|give|check|search|find|open|start|roll|flip|translate|convert|define|meaning|generate|play|launch|look|what|how)\b|చెప్పు|చూడు|తెరువు|చేయి|వెతుకు|పంపు/i.test(text);
+    }
+
+    // In the Android app, window.open() would load the page inside KALKI itself.
+    // Navigating instead lets the app hand the link to YouTube/the browser.
+    function openLink(url) {
+        if (window.JarvisNative) window.location.href = url;
+        else window.open(url, "_blank", "noopener");
     }
 
     function openWhatsApp() {
@@ -628,12 +641,12 @@ document.addEventListener("DOMContentLoaded", () => {
         }
         const everydayTool = detectEverydayTool(commandText);
         const requestedSkill = detectSkill(commandText);
-        if ((everydayTool || requestedSkill) && isExplicitAction(commandText)) {
+        if ((everydayTool && isExplicitToolRequest(commandText)) || (requestedSkill && isExplicitAction(commandText))) {
             if (requestedSkill === "whatsapp" && handleLocalCommand(commandText)) return;
             try {
                 const result = await sendBackendCommand(commandText);
-                showMessage("KALKI", result.message || "Command received.", "ai");
-                if (result.url && result.executed && (result.tool === "openYouTube" || result.tool === "openGoogle" || result.tool === "youtubeSearch" || result.tool === "wikipedia")) window.open(result.url, "_blank", "noopener");
+                showMessage("KALKI", result.message || result.reason || "Command received.", "ai");
+                if (result.url && result.executed && (result.tool === "openYouTube" || result.tool === "openGoogle" || result.tool === "youtubeSearch" || result.tool === "wikipedia")) openLink(result.url);
                 if (result.notify && result.seconds) {
                     window.setTimeout(() => { const text = "⏰ Timer complete!"; showMessage("KALKI", text, "ai"); if (!ttsAutoRead?.checked && !voiceConversationActive) speak(text); if (window.Notification && Notification.permission === "granted") new Notification("KALKI", { body: text }); }, result.seconds * 1000);
                     if (window.Notification && Notification.permission === "default") Notification.requestPermission().catch(() => {});
