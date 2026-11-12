@@ -30,7 +30,7 @@ python3 -m unittest discover -s desktop-agent -p 'test_*.py' -v
 
 ## Safety and limits
 
-- The server binds only to `127.0.0.1:43187`, and browser requests are accepted only from the exact origin `https://vamshi-vfx.github.io`.
+- The server binds only to `127.0.0.1:43187`, and browser requests are accepted only from the exact origin `https://rakesh-1143.github.io`.
 - Pairing uses a random one-time code with a five-minute expiry and a five-attempt limit. The resulting session token is held only in the current page's memory, not browser storage.
 - The agent accepts only the fixed action IDs `calculator`, `notes`, and `browser`; it does not accept shell text, arbitrary commands, file paths, or user-supplied URLs.
 - It does not provide terminal execution, file browsing/editing, screenshots, camera access, or remote access.
