@@ -1,2 +1,2 @@
-# Jarvis-mobile
-My Jarvis ai assistant 
+# jarvis-mobile-edition
+MY JARVIS AI ASSISTANT 
