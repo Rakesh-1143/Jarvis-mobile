@@ -131,7 +131,7 @@ document.addEventListener("DOMContentLoaded", () => {
             speakButton.setAttribute("aria-label", `Read ${displaySender}'s reply aloud`);
             speakButton.setAttribute("aria-pressed", "false");
             speakButton.addEventListener("click", () => {
-                if (activeSpeakButton === speakButton && window.speechSynthesis?.speaking) stopSpeaking();
+                if (activeSpeakButton === speakButton && (nativeSpeaking || window.speechSynthesis?.speaking)) stopSpeaking();
                 else speak(text, speakButton);
             });
             message.appendChild(speakButton);
@@ -297,13 +297,38 @@ document.addEventListener("DOMContentLoaded", () => {
         activeUtterance = null;
     }
 
+    // Android app: speak replies with the phone's native text-to-speech.
+    const hasNativeTts = () => typeof window.JarvisNative?.speak === "function";
+    let nativeSpeaking = false;
+    window.addEventListener("jarvis-native-speech", (event) => {
+        let data = {};
+        try { data = JSON.parse(event.detail || "{}"); } catch (_) { return; }
+        if (data.type !== "tts-end" || !nativeSpeaking) return;
+        nativeSpeaking = false;
+        resetSpeakButton();
+        if (voiceConversationActive) scheduleVoiceListening(550);
+    });
+
     function stopSpeaking(resumeVoice = true) {
+        if (nativeSpeaking) { nativeSpeaking = false; try { window.JarvisNative.stopSpeaking(); } catch (_) { /* Bridge unavailable. */ } }
         if ("speechSynthesis" in window) window.speechSynthesis.cancel();
         resetSpeakButton();
         if (resumeVoice && voiceConversationActive) scheduleVoiceListening(350);
     }
 
     function speak(text, button = null) {
+        if (hasNativeTts()) {
+            stopSpeaking(false);
+            if (voiceConversationActive && isListening && recognition) {
+                try { recognition.stop(); } catch (_) { /* Already stopped. */ }
+            }
+            const telugu = /[\u0C00-\u0C7F]/.test(String(text));
+            nativeSpeaking = true;
+            activeSpeakButton = button;
+            if (button) { button.textContent = "⏹ Stop"; button.setAttribute("aria-pressed", "true"); }
+            window.JarvisNative.speak(String(text), telugu ? "te-IN" : (voiceInputLanguage?.value || "en-IN"));
+            return;
+        }
         if (!("speechSynthesis" in window) || !("SpeechSynthesisUtterance" in window)) {
             if (ttsStatus) ttsStatus.textContent = "Text-to-speech is not supported by this browser.";
             if (voiceConversationActive) scheduleVoiceListening(500);
@@ -695,7 +720,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
     function beginVoiceListening() {
         if (!voiceConversationActive || !recognition || isListening || recognitionStarting || voiceTurnPending || document.hidden) return;
-        if (window.speechSynthesis?.speaking || window.speechSynthesis?.pending) {
+        if (nativeSpeaking || window.speechSynthesis?.speaking || window.speechSynthesis?.pending) {
             scheduleVoiceListening(450);
             return;
         }
@@ -712,7 +737,7 @@ document.addEventListener("DOMContentLoaded", () => {
     function finishVoiceTurn() {
         voiceTurnPending = false;
         if (!voiceConversationActive) return;
-        if (window.speechSynthesis?.speaking || window.speechSynthesis?.pending) return;
+        if (nativeSpeaking || window.speechSynthesis?.speaking || window.speechSynthesis?.pending) return;
         scheduleVoiceListening(550);
     }
 
@@ -725,7 +750,7 @@ document.addEventListener("DOMContentLoaded", () => {
         stopSpeaking(false);
         voiceConversationActive = true;
         voiceTurnPending = false;
-        if ("speechSynthesis" in window && "SpeechSynthesisUtterance" in window) {
+        if (hasNativeTts() || ("speechSynthesis" in window && "SpeechSynthesisUtterance" in window)) {
             setVoiceModeStatus("Voice chat is on. Listening after the greeting…", true);
             speak("Hi, I’m KALKI. I’m listening.", null);
         } else {
@@ -752,8 +777,29 @@ document.addEventListener("DOMContentLoaded", () => {
         else startVoiceConversation();
     }
 
+    // Android app: WebView has no working Web Speech API, so use the native
+    // Android recognizer through the JarvisNative bridge with the same interface.
+    function createNativeRecognition() {
+        const bridge = window.JarvisNative;
+        if (!bridge || typeof bridge.startListening !== "function") return null;
+        try { if (typeof bridge.speechAvailable === "function" && !bridge.speechAvailable()) return null; } catch (_) { return null; }
+        const rec = { lang: "en-IN", continuous: false, interimResults: false, onstart: null, onresult: null, onerror: null, onend: null,
+            start() { bridge.startListening(this.lang || "en-IN"); },
+            stop() { bridge.stopListening(); } };
+        window.addEventListener("jarvis-native-speech", (event) => {
+            let data = {};
+            try { data = JSON.parse(event.detail || "{}"); } catch (_) { return; }
+            if (data.type === "start") rec.onstart?.();
+            else if (data.type === "result") rec.onresult?.({ results: [Object.assign([{ transcript: data.text || "" }], { isFinal: true })] });
+            else if (data.type === "error") rec.onerror?.({ error: data.error || "unknown" });
+            else if (data.type === "end") rec.onend?.();
+        });
+        return rec;
+    }
+
     function setupVoice() {
-        const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+        const NativeRecognition = createNativeRecognition();
+        const SpeechRecognition = NativeRecognition ? function () { return NativeRecognition; } : (window.SpeechRecognition || window.webkitSpeechRecognition);
         if (!SpeechRecognition) {
             setVoiceModeStatus("Voice chat needs a browser with speech recognition, such as Chrome or Edge.", false);
             return;
@@ -803,7 +849,7 @@ document.addEventListener("DOMContentLoaded", () => {
         recognition.onend = () => {
             recognitionStarting = false;
             isListening = false;
-            if (!voiceConversationActive || voiceTurnPending || window.speechSynthesis?.speaking) return;
+            if (!voiceConversationActive || voiceTurnPending || nativeSpeaking || window.speechSynthesis?.speaking) return;
             setVoiceModeStatus("Listening again…", true);
             scheduleVoiceListening(500);
         };
