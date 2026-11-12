@@ -3,7 +3,10 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-  <meta name="theme-color" content="#0b0d12">
+  <meta name="theme-color" content="#07080d">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap">
   <title>KALKI — Personal AI Assistant</title>
   <link rel="stylesheet" href="style.css?v=gemini-key-settings-1">
   <link rel="stylesheet" href="everyday-tools.css?v=kalki-1">
@@ -13,28 +16,35 @@
   <link rel="stylesheet" href="professional-ui.css?v=scroll-fix-1">
   <link rel="stylesheet" href="motion-enhancements.css?v=0.1.0">
   <link rel="stylesheet" href="kalki-effects.css?v=3">
+  <link rel="stylesheet" href="kalki-theme.css?v=1">
   <style>.advanced-intelligence-panel{margin:18px auto 0;max-width:760px;border:1px solid rgba(176,164,255,.28);border-radius:18px;background:linear-gradient(145deg,rgba(25,29,42,.92),rgba(12,15,24,.9));box-shadow:0 14px 40px #0004;overflow:hidden}.ai-panel-head{display:flex;justify-content:space-between;align-items:center;padding:14px 16px}.ai-panel-head strong,.ai-panel-head small{display:block}.ai-panel-head small{color:var(--muted);font-size:10px;margin-top:4px}.ai-collapse{border:1px solid var(--line);border-radius:10px;background:transparent;color:var(--text);font-size:18px}.ai-panel-body{padding:0 16px 16px}.ai-status-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:7px}.ai-status-grid span{padding:8px;border:1px solid var(--line);border-radius:10px;background:#ffffff05}.ai-status-grid b,.ai-status-grid em{display:block;font-size:10px}.ai-status-grid b{text-transform:capitalize;color:var(--muted)}.ai-status-grid em{font-style:normal;color:#f0b48c;margin-top:3px}.ai-status-grid em.on{color:var(--green)}.ai-actions{display:flex;gap:7px;flex-wrap:wrap;margin:12px 0}.ai-actions button,.ai-plan button{border:1px solid var(--line);border-radius:10px;padding:9px;background:#ffffff08;color:var(--text);font-size:11px}.ai-plan label{display:block;color:var(--muted);font-size:11px;margin-bottom:5px}.ai-plan textarea{width:100%;box-sizing:border-box;resize:vertical;border:1px solid var(--line);border-radius:10px;padding:9px;background:#090b11;color:var(--text);font:inherit;font-size:12px}.ai-plan button{margin-top:7px}.ai-unavailable{color:var(--muted);font-size:10px;line-height:1.4;margin:12px 0 0}@media(max-width:560px){.ai-status-grid{grid-template-columns:repeat(2,1fr)}.ai-actions button{flex:1 1 45%}}</style>
 </head>
 <body>
   <div class="app-shell">
     <header class="app-header">
-      <button class="icon-button menu-button" type="button" aria-label="Open menu">☰</button>
+      <button class="icon-button menu-button" type="button" aria-label="Open menu"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h10"/></svg></button>
       <div class="brand-lockup">
         <div class="brand-mark" aria-hidden="true"><img src="1789578396977-559ec457.jpg" alt="KALKI"></div>
-        <div><h1>KALKI</h1><p><span class="status-dot"></span> Voice assistant · talk or type</p></div>
+        <div><h1>KALKI</h1><p><span class="status-dot"></span> <span class="status-text">Online · ready to help</span></p></div>
       </div>
-      <button id="clear-btn" class="icon-button" type="button" aria-label="Clear conversation">⌫</button>
+      <button id="clear-btn" class="icon-button" type="button" aria-label="Clear conversation" title="Clear conversation"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M10 11v6M14 11v6M6 7l1 12a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2l1-12M9 7V4h6v3"/></svg></button>
     </header>
 
     <main class="assistant-main">
       <section class="welcome" aria-label="Welcome">
-        <div class="welcome-orb">✦</div>
-        <p class="eyebrow">YOUR AI COMPANION</p>
-        <h2>How can I help<br><em>today?</em></h2>
-        <p class="welcome-copy">Talk with KALKI hands-free, or type a message. Tap the microphone to start or stop voice conversation.</p>
+        <button id="voice-orb" class="voice-orb" type="button" aria-label="Start voice conversation">
+          <span class="orb-glow"></span><span class="orb-ring"></span><span class="orb-ring orb-ring-2"></span><span class="orb-core"></span>
+          <span class="orb-mic"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5.5 11a6.5 6.5 0 0 0 13 0M12 17.5V21"/></svg></span>
+        </button>
+        <p class="orb-hint" id="orb-hint">Tap to talk</p>
+        <p class="eyebrow">KALKI · YOUR AI ASSISTANT</p>
+        <h2>How can I help you <em>today?</em></h2>
+        <p class="welcome-copy">Speak naturally or type a message. KALKI listens only while voice mode is on.</p>
         <div class="suggestions" aria-label="Suggestions">
-          <button type="button" onclick="document.getElementById('msg').value='Help me plan my day';document.getElementById('msg').focus()">Plan my day <span>→</span></button>
-          <button type="button" onclick="document.getElementById('msg').value='Search the web for ';document.getElementById('msg').focus()">Search the web <span>→</span></button>
+          <button type="button" class="suggestion-card" data-suggest="Help me plan my day"><span class="sc-icon"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="5" width="18" height="16" rx="3"/><path d="M3 10h18M8 3v4M16 3v4"/></svg></span><span class="sc-text"><strong>Plan my day</strong><small>Build a simple schedule</small></span></button>
+          <button type="button" class="suggestion-card" data-suggest="Search the web for "><span class="sc-icon"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg></span><span class="sc-text"><strong>Search the web</strong><small>Find answers fast</small></span></button>
+          <button type="button" class="suggestion-card" data-suggest="Tell me a joke"><span class="sc-icon"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M8 14s1.5 2 4 2 4-2 4-2M9 9h.01M15 9h.01"/></svg></span><span class="sc-text"><strong>Tell me a joke</strong><small>Something to smile about</small></span></button>
+          <button type="button" class="suggestion-card" data-suggest="Give me motivation"><span class="sc-icon"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M13 2 4 14h7l-1 8 9-12h-7l1-8z"/></svg></span><span class="sc-text"><strong>Motivate me</strong><small>A quick boost of energy</small></span></button>
         </div>
         <section id="everyday-tools" class="everyday-tools" aria-label="KALKI Everyday Tools">
           <div class="tools-heading"><strong>KALKI Everyday Tools</strong><small>Tap to prepare a command — nothing runs automatically.</small></div>
@@ -101,26 +111,26 @@
 
     <div class="composer-wrap">
       <div class="composer" role="group" aria-label="Message composer">
-        <button id="attach-btn" class="composer-icon" type="button" aria-label="Attach a file" aria-expanded="false">＋</button>
+        <button id="attach-btn" class="composer-icon" type="button" aria-label="Attach a file" aria-expanded="false"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg></button>
         <input id="img-input" type="file" accept="image/*,.pdf,.txt,.doc,.docx" hidden>
         <input id="msg" type="text" placeholder="Talk or message KALKI..." autocomplete="off" enterkeyhint="send">
         <button id="mic-btn" class="composer-icon voice-conversation-toggle" type="button" aria-label="Start voice conversation" title="Start voice conversation" aria-pressed="false">🎙</button>
         <button id="send" class="send-button" type="button" aria-label="Send message">↑</button>
-      <div id="attachment-menu" class="attachment-menu" hidden role="menu"><button id="cam-btn" type="button" role="menuitem">📷 Take or choose an image</button><button id="file-btn" type="button" role="menuitem">📎 Choose a file</button></div>
+      <div id="attachment-menu" class="attachment-menu" hidden role="menu"><button id="cam-btn" type="button" role="menuitem"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 8h3l2-3h6l2 3h3v11H4z"/><circle cx="12" cy="13" r="3.5"/></svg> Take or choose an image</button><button id="file-btn" type="button" role="menuitem"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M14 3H6v18h12V7z"/><path d="M14 3v4h4"/></svg> Choose a file</button></div>
       </div>
-      <p class="safe-note"><span>✦</span> KALKI only takes action when you explicitly ask.</p>
-      <p id="voice-mode-status" class="voice-mode-status" role="status" aria-live="polite">Tap 🎙 to start a voice conversation. Tap again to stop.</p>
+      <p id="voice-mode-status" class="voice-mode-status" role="status" aria-live="polite">Tap the mic or the orb to start talking.</p>
+      <p class="safe-note">KALKI only takes action when you explicitly ask.</p>
     </div>
   </div>
 
   <aside class="side-sheet" aria-label="Navigation">
     <button class="sheet-close" type="button" aria-label="Close menu">×</button>
     <p class="eyebrow">KALKI</p><h2>Assistant</h2>
-    <button class="sheet-link" type="button">＋ New conversation</button>
-    <a class="sheet-link" href="connectors.html">◇ Connectors</a>
-    <a class="sheet-link" href="../" target="_blank" rel="noopener noreferrer" aria-label="Open the KALKI product website in a new tab">ⓘ KALKI product site ↗</a>
-    <a class="sheet-link" href="#kalki-effects-panel" id="kalki-effects-link">✧ KALKI Visual Effects</a>
-    <a class="sheet-link" href="#creator-agent-panel" id="creator-agent-link">✦ Creator Agent</a><a class="sheet-link" href="#social-agent-panel" id="social-agent-link">◎ Social Automation Agent</a><a class="sheet-link" href="#everyday-tools" id="tools-menu-link">⌁ Tools</a><button id="settings-toggle" class="sheet-link" type="button" aria-expanded="false">⚙ Settings</button>
+    <button id="new-chat-link" class="sheet-link" type="button"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg><span>New conversation</span></button>
+    <a class="sheet-link" href="connectors.html"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M9 7V3M15 7V3M7 7h10v4a5 5 0 0 1-10 0zM12 16v5"/></svg><span>Connectors</span></a>
+    <a class="sheet-link" href="../" target="_blank" rel="noopener noreferrer" aria-label="Open the KALKI product website in a new tab"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 11v5M12 8h.01"/></svg><span>KALKI product site</span></a>
+    <a class="sheet-link" href="#kalki-effects-panel" id="kalki-effects-link"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="m12 3 1.8 5.2L19 10l-5.2 1.8L12 17l-1.8-5.2L5 10l5.2-1.8z"/></svg><span>KALKI Visual Effects</span></a>
+    <a class="sheet-link" href="#creator-agent-panel" id="creator-agent-link"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="6" width="13" height="12" rx="2"/><path d="m16 10 5-3v10l-5-3"/></svg><span>Creator Agent</span></a><a class="sheet-link" href="#social-agent-panel" id="social-agent-link"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="4"/></svg><span>Social Automation Agent</span></a><a class="sheet-link" href="#everyday-tools" id="tools-menu-link"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M14.7 6.3a4 4 0 0 0-5.4 5.4L3 18l3 3 6.3-6.3a4 4 0 0 0 5.4-5.4l-2.5 2.5-2.4-.6-.6-2.4z"/></svg><span>Tools</span></a><button id="settings-toggle" class="sheet-link" type="button" aria-expanded="false"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M4.2 4.2l2.1 2.1M17.7 17.7l2.1 2.1M2 12h3M19 12h3M4.2 19.8l2.1-2.1M17.7 6.3l2.1-2.1"/></svg><span>Settings</span></button>
     <section id="voice-settings" class="voice-settings" hidden aria-label="Settings">
       <section class="voice-output-settings" aria-labelledby="tts-settings-title">
         <div class="voice-setting-heading"><strong id="tts-settings-title">Voice conversation</strong><small>Choose a consistent voice and how KALKI listens.</small></div>
@@ -153,7 +163,7 @@
         <a class="api-key-link" href="https://aistudio.google.com/app/apikey" target="_blank" rel="noopener noreferrer">Get a Gemini API key from Google AI Studio ↗</a>
       </section>
     </section>
-    <a class="sheet-link" href="admin.html">▣ Admin dashboard</a>
+    <a class="sheet-link" href="admin.html"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="3" width="7" height="9" rx="1.5"/><rect x="14" y="3" width="7" height="5" rx="1.5"/><rect x="14" y="12" width="7" height="9" rx="1.5"/><rect x="3" y="16" width="7" height="5" rx="1.5"/></svg><span>Admin dashboard</span></a>
   </aside>
   <div class="sheet-backdrop"></div>
 
@@ -260,7 +270,7 @@
       document.body.classList.remove('kalki-mode-active');
       document.body.classList.toggle('utility-mode-active', !assistant);
       if (welcomeSurface) welcomeSurface.hidden = !assistant && !tools;
-      if (sharePreview) sharePreview.hidden = !assistant;
+      if (sharePreview) sharePreview.hidden = !assistant || !document.getElementById('share-summary')?.textContent.trim();
       if (chatSurface) chatSurface.hidden = !assistant;
       if (creatorPanel) creatorPanel.hidden = !creator;
       if (toolsSection) toolsSection.hidden = !tools;
@@ -298,6 +308,24 @@
     document.getElementById('file-btn')?.addEventListener('click', () => { toggleAttachment(false); fileInput?.click(); });
     fileInput?.addEventListener('change', () => { const file = fileInput.files?.[0]; if (file && messageInput) { messageInput.value = `Please review this file: ${file.name}`; messageInput.focus(); } });
     document.addEventListener('click', (event) => { if (attachmentMenu && !attachmentMenu.contains(event.target) && event.target !== attachButton) toggleAttachment(false); });
+    // UI helpers: suggestions, tools, new chat, voice orb, and voice-state styling hooks.
+    const msgInput = document.getElementById('msg');
+    function prepareCommand(text) { if (!msgInput) return; msgInput.value = text; msgInput.focus(); }
+    document.querySelectorAll('[data-suggest]').forEach(btn => btn.addEventListener('click', () => prepareCommand(btn.dataset.suggest)));
+    document.querySelectorAll('[data-tool-command]').forEach(btn => btn.addEventListener('click', () => { setSurface('assistant'); prepareCommand(btn.dataset.toolCommand); }));
+    document.getElementById('new-chat-link')?.addEventListener('click', () => { document.getElementById('clear-btn')?.click(); toggleMenu(false); setSurface('assistant'); });
+    document.getElementById('voice-orb')?.addEventListener('click', () => document.getElementById('mic-btn')?.click());
+    function syncVoiceUi() {
+      const v = window.kalkiVoiceState || {};
+      const mode = v.processing ? 'thinking' : v.listening ? 'listening' : v.active ? 'active' : 'off';
+      document.body.dataset.voice = mode;
+      const orb = document.getElementById('voice-orb'), hint = document.getElementById('orb-hint');
+      orb?.setAttribute('aria-label', v.active ? 'Stop voice conversation' : 'Start voice conversation');
+      if (hint) hint.textContent = mode === 'listening' ? 'Listening…' : mode === 'thinking' ? 'Thinking…' : mode === 'active' ? 'Voice on · tap to stop' : 'Tap to talk';
+    }
+    window.addEventListener('kalki:voice-state', syncVoiceUi);
+    window.addEventListener('kalki:assistant-state', e => { document.body.dataset.assistant = e.detail?.state || 'idle'; });
+    syncVoiceUi();
     setSurface('assistant');
   </script>
 </body>
