@@ -42,9 +42,9 @@ function detectEverydayTool(text='') {
   if (/\b(time|what time|samayam|సమయం)\b/i.test(text)) return 'time';
   if (/\b(weather|temperature|varsham|వాతావరణం)\b/i.test(text)) return 'weather';
   if (/\b(timer|alarm|countdown)\b/i.test(text)) return 'timer';
-  if (/\b(dice|roll|coin|flip|head|tail|నాణెం)\b/i.test(text)) return 'dice';
+  if (/\b(dice|roll|coin|flip|heads?|tails?|నాణెం)\b/i.test(text)) return 'dice';
   if (/\b(joke|funny|joke cheppu)\b/i.test(text)) return 'joke';
-  if (/\b(motivat|inspire|quote|inspiration)\b/i.test(text)) return 'motivation';
+  if (/\b(motivat\w*|inspir\w*|quotes?)\b/i.test(text)) return 'motivation';
   if (/\b(tech news|technology news|ai news)\b/i.test(text)) return 'techNews';
   if (/\b(translate|translation|telugu lo)\b/i.test(text)) return 'translate';
   if (/\b(currency|convert|exchange rate|rupees?|inr|dollar)\b/i.test(text)) return 'currency';

@@ -30,7 +30,7 @@ public final class MainActivity extends Activity {
         speech=new SpeechBridge(this,json->dispatch("jarvis-native-speech",json));
         webView.addJavascriptInterface(new NativeBridge(),"JarvisNative");
         webView.addJavascriptInterface(advancedBridge,"JarvisAdvanced"); webView.setWebViewClient(new WebViewClient(){
-            @Override public boolean shouldOverrideUrlLoading(WebView v,WebResourceRequest r){return openExternalIfNeeded(r.getUrl());}
+            @Override public boolean shouldOverrideUrlLoading(WebView v,WebResourceRequest r){return r.isForMainFrame()&&openExternalIfNeeded(r.getUrl());}
             @Override public boolean shouldOverrideUrlLoading(WebView v,String u){return openExternalIfNeeded(Uri.parse(u));}
             @Override public void onPageFinished(WebView v,String u){super.onPageFinished(v,u);dispatchPendingShare();}
         });
@@ -57,7 +57,9 @@ public final class MainActivity extends Activity {
     private String JSONObjectQuote(String s){return org.json.JSONObject.quote(s);}
     @Override protected void onStart(){super.onStart();IntentFilter f=new IntentFilter(WakeWordService.ACTION_COMMAND);if(Build.VERSION.SDK_INT>=33)registerReceiver(wakeReceiver,f,RECEIVER_NOT_EXPORTED);else registerReceiver(wakeReceiver,f);}
     @Override protected void onStop(){try{unregisterReceiver(wakeReceiver);}catch(Exception ignored){}super.onStop();}
-    private boolean openExternalIfNeeded(Uri u){String scheme=u.getScheme();if("http".equalsIgnoreCase(scheme)||"https".equalsIgnoreCase(scheme))return false;try{startActivity(new Intent(Intent.ACTION_VIEW,u));}catch(Exception e){Toast.makeText(this,"No app can open this link",Toast.LENGTH_SHORT).show();}return true;}
+    private boolean openExternalIfNeeded(Uri u){String scheme=u.getScheme();if(("http".equalsIgnoreCase(scheme)||"https".equalsIgnoreCase(scheme))&&isAppHost(u))return false;try{startActivity(new Intent(Intent.ACTION_VIEW,u));}catch(Exception e){Toast.makeText(this,"No app can open this link",Toast.LENGTH_SHORT).show();}return true;}
+    /** KALKI's own pages stay in the app; other sites (YouTube, Google sign-in, ...) open in their app or the browser. */
+    private boolean isAppHost(Uri u){String host=u.getHost(),appHost=Uri.parse(BuildConfig.JARVIS_START_URL).getHost();return host!=null&&host.equalsIgnoreCase(appHost);}
     private boolean isTrustedOrigin(Uri o){return o!=null&&"https".equalsIgnoreCase(o.getScheme())&&o.getHost()!=null;}
     private boolean hasRecordAudioPermission(){return checkSelfPermission(Manifest.permission.RECORD_AUDIO)==PackageManager.PERMISSION_GRANTED;}
     private boolean hasCameraPermission(){return checkSelfPermission(Manifest.permission.CAMERA)==PackageManager.PERMISSION_GRANTED;}

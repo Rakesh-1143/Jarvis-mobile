@@ -1,8 +1,8 @@
 name: JARVIS daily AI launch update
 
+# Manual only: the server has no /api/automation/daily-ai-launch endpoint yet,
+# so a daily schedule would just fail every day.
 on:
-  schedule:
-    - cron: '30 2 * * *'
   workflow_dispatch:
 
 jobs:

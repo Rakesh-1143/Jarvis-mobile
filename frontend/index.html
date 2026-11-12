@@ -167,7 +167,7 @@
   </aside>
   <div class="sheet-backdrop"></div>
 
-  <script src="script.js?v=voice-conversation-1"></script>
+  <script src="script.js?v=bugfix-1"></script>
   <script src="advanced-intelligence.js"></script>
   <script src="social-agent.js?v=local-preview-1"></script>
   <script>
@@ -306,7 +306,7 @@
     attachButton?.addEventListener('click', (event) => { event.stopPropagation(); toggleAttachment(attachmentMenu?.hidden !== false); });
     document.getElementById('cam-btn')?.addEventListener('click', () => { toggleAttachment(false); fileInput?.click(); });
     document.getElementById('file-btn')?.addEventListener('click', () => { toggleAttachment(false); fileInput?.click(); });
-    fileInput?.addEventListener('change', () => { const file = fileInput.files?.[0]; if (file && messageInput) { messageInput.value = `Please review this file: ${file.name}`; messageInput.focus(); } });
+    fileInput?.addEventListener('change', () => { const file = fileInput.files?.[0]; const input = document.getElementById('msg'); if (file && input) { input.value = `Please review this file: ${file.name}`; input.focus(); } });
     document.addEventListener('click', (event) => { if (attachmentMenu && !attachmentMenu.contains(event.target) && event.target !== attachButton) toggleAttachment(false); });
     // UI helpers: suggestions, tools, new chat, voice orb, and voice-state styling hooks.
     const msgInput = document.getElementById('msg');
