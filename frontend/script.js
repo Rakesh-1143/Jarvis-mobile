@@ -49,9 +49,9 @@ document.addEventListener("DOMContentLoaded", () => {
     let recognitionStarting = false;
     let voiceRestartTimer = null;
     const API_KEY_STORAGE = "jarvis_api_key";
-    const BACKEND_HEALTH_URL = "https://jarvis-mobile-edition-alpha.vercel.app/api/health";
-    const BACKEND_COMMAND_URL = "https://jarvis-mobile-edition-alpha.vercel.app/api/command";
-    const INTERACTION_URL = "https://jarvis-mobile-edition-alpha.vercel.app/api/interaction/analyze";
+    const BACKEND_HEALTH_URL = "https://jarvis-backend-s5xl.onrender.com/api/health";
+    const BACKEND_COMMAND_URL = "https://jarvis-backend-s5xl.onrender.com/api/command";
+    const INTERACTION_URL = "https://jarvis-backend-s5xl.onrender.com/api/interaction/analyze";
     function conversationPreferences() { try { return Object.assign({}, JSON.parse(localStorage.getItem("kalki.preferences") || "{}"), JSON.parse(localStorage.getItem("kalki.conversation") || "{}")); } catch (_) { return {}; } }
     async function analyzeInteraction(text) {
         try { const prefs = conversationPreferences(); const r = await fetch(INTERACTION_URL, {method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify({text, messages:readMemory().slice(-12), profile:{displayName:prefs.name||"", language:prefs.language||"auto", responseStyle:prefs.style||"short"}, preferences:{askFollowUps:prefs.followUps !== false}})}); return r.ok ? await r.json() : null; } catch (_) { return null; }

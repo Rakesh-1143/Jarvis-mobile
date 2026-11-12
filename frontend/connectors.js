@@ -1,5 +1,5 @@
 (()=>{
-  const B='https://jarvis-mobile-edition-alpha.vercel.app', G=document.getElementById('connector-grid');
+  const B='https://jarvis-backend-s5xl.onrender.com', G=document.getElementById('connector-grid');
   const P=[
     ['whatsapp','WhatsApp','WA','Private JARVIS bridge only; never Zapia.','Pair the approved bridge and authorize its health check.'],
     ['gmail','Gmail','M','Read-only Gmail access through Google OAuth.','Allows KALKI to read messages only; it cannot send or delete mail.','gmail'],
