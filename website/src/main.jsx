@@ -9,7 +9,7 @@ import {
 import './styles.css';
 import logoAsset from './assets/kalki-logo.jpg';
 
-const APP = '/jarvis-mobile-edition/frontend/';
+const APP = '/Jarvis-mobile/frontend/';
 const LOGO = logoAsset;
 
 const capabilities = [
@@ -178,7 +178,7 @@ function FAQ() {
 }
 
 function Footer() {
-  return <footer className="footer"><div className="shell footer-top"><a className="brand footer-brand" href="#top"><img src={LOGO} alt="" /><span>KALKI<span className="brand-dot">.</span></span></a><p>Personal AI in progress.<br /><span>Designed around your control.</span></p><a className="footer-app" href={APP}>Open the KALKI app <ArrowUpRight size={15} /></a></div><div className="shell footer-bottom"><span>© 2026 KALKI · PERSONAL AI ASSISTANT</span><span>PRIVATE BETA · CAPABILITIES MAY CHANGE</span><div><a href="/jarvis-mobile-edition/about.html">About</a><a href="/jarvis-mobile-edition/security.html">Security</a><a href="https://github.com/vamshi-vfx/jarvis-mobile-edition" target="_blank" rel="noreferrer">GitHub <ArrowUpRight size={12} /></a></div></div></footer>;
+  return <footer className="footer"><div className="shell footer-top"><a className="brand footer-brand" href="#top"><img src={LOGO} alt="" /><span>KALKI<span className="brand-dot">.</span></span></a><p>Personal AI in progress.<br /><span>Designed around your control.</span></p><a className="footer-app" href={APP}>Open the KALKI app <ArrowUpRight size={15} /></a></div><div className="shell footer-bottom"><span>© 2026 KALKI · PERSONAL AI ASSISTANT</span><span>PRIVATE BETA · CAPABILITIES MAY CHANGE</span><div><a href="/Jarvis-mobile/about.html">About</a><a href="/Jarvis-mobile/security.html">Security</a><a href="https://github.com/Rakesh-1143/Jarvis-mobile" target="_blank" rel="noreferrer">GitHub <ArrowUpRight size={12} /></a></div></div></footer>;
 }
 
 function App() {

@@ -18,7 +18,7 @@ from typing import Any
 
 HOST = "127.0.0.1"
 PORT = 43187
-ALLOWED_ORIGIN = "https://vamshi-vfx.github.io"
+ALLOWED_ORIGIN = "https://rakesh-1143.github.io"
 PAIR_CODE_TTL = 300
 MAX_BODY_BYTES = 4096
 ALLOWED_ACTIONS = {"calculator", "notes", "browser"}

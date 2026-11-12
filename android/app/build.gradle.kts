@@ -3,7 +3,7 @@ plugins {
 }
 
 val startUrl = providers.gradleProperty("JARVIS_START_URL")
-    .orElse("https://vamshi-vfx.github.io/jarvis-mobile-edition/frontend/")
+    .orElse("https://rakesh-1143.github.io/Jarvis-mobile/frontend/")
 
 android {
     namespace = "com.growthos.jarvis"

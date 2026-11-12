@@ -77,7 +77,7 @@ assert.ok(!/kalki-avatar-root|kalki-thinking-root|kalki-composer-effects-root/.t
 assert.ok(!/ImageEffectSection|BotAvatarsSection|ImageGeneration|BotAvatar|image-effect|bot-avatars/.test(product), 'Libraries.dev demos belong in the assistant, not the product website');
 assert.ok(!/image-effect|bot-avatar/.test(assistantCss), 'marketing-site demo styles should be removed');
 assert.match(html, /<html lang="en">/, 'public site must be English-only');
-assert.match(html, /jarvis-mobile-edition\/frontend\//, 'KALKI app backlink must point to the existing app');
+assert.match(html, /Jarvis-mobile\/frontend\//, 'KALKI app backlink must point to the existing app');
 assert.match(product, /useReducedMotion/, 'product site motion must respect reduced-motion preferences');
 assert.match(product, /SIMULATOR ONLY/, 'social integration status must remain honest');
 assert.match(product, /NOT RELEASED/, 'Android release status must remain honest');

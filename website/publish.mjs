@@ -8,7 +8,7 @@ const effectsDist = path.join(here, 'assistant-effects-dist');
 const repo = path.resolve(here, '..');
 const rootIndex = path.join(dist, 'index.html');
 const html = await readFile(rootIndex, 'utf8');
-if (!html.includes('/jarvis-mobile-edition/assets/kalki-site/')) {
+if (!html.includes('/Jarvis-mobile/assets/kalki-site/')) {
   throw new Error('Built site is missing the expected GitHub Pages asset base path.');
 }
 await copyFile(rootIndex, path.join(repo, 'index.html'));

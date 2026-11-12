@@ -15,7 +15,7 @@ on:
         description: "Optional HTTPS URL compiled into the WebView APK"
         required: false
         type: string
-        default: "https://vamshi-vfx.github.io/jarvis-mobile-edition/frontend/"
+        default: "https://rakesh-1143.github.io/Jarvis-mobile/frontend/"
 
 permissions:
   contents: read
@@ -54,7 +54,7 @@ jobs:
 
       - name: Build debug APK
         env:
-          JARVIS_START_URL: ${{ inputs.JARVIS_START_URL || 'https://vamshi-vfx.github.io/jarvis-mobile-edition/frontend/' }}
+          JARVIS_START_URL: ${{ inputs.JARVIS_START_URL || 'https://rakesh-1143.github.io/Jarvis-mobile/frontend/' }}
         run: gradle --no-daemon assembleDebug -PJARVIS_START_URL="$JARVIS_START_URL"
 
       - name: Upload APK
