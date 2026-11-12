@@ -98,6 +98,14 @@ const server=http.createServer(async(req,res)=>{
   if(req.method==='POST'&&url.pathname==='/api/interaction/greeting-preview') { const body=await readBody(req); return json(res,200,{ok:true,preview:INTERACTION.morningGreetingPreview(body)}); }
   if(req.method==='GET'&&url.pathname==='/api/tools') return json(res,200,{ok:true,tools:TOOL_REGISTRY,note:'All tools are explicit-command-only. Live values are returned only from verified provider responses; unavailable values are never guessed.'});
   if(req.method==='GET'&&url.pathname==='/api/connectors/status') return json(res,200,{ok:true,providers:await connectorStatus(),note:'Safe configuration booleans only; secrets and tokens are never returned.'});
+  const verifyMatch=url.pathname.match(/^\/api\/connectors\/([A-Za-z]+)\/verify$/);
+  if(req.method==='GET'&&verifyMatch) {
+    const provider=verifyMatch[1], providers=await connectorStatus();
+    if(!(provider in providers)) return json(res,404,{ok:false,message:'Unknown connector.'});
+    const ready=providers[provider];
+    const hints={whatsapp:'WhatsApp is not connected. Sending messages needs a private WhatsApp bridge (WPP_BRIDGE_URL and WPP_BRIDGE_TOKEN on the server). You can still say "open WhatsApp".'};
+    return json(res,200,{ok:true,provider,status:ready?'connected':'not_connected',executed:false,message:ready?'Setup found on the server. Nothing was executed.':(hints[provider]||'Not set up yet. The required server settings are missing. Nothing was executed.')});
+  }
   // OAuth start/callback are public by design; signed, short-lived, single-use state
   // prevents token leakage. Tokens are never returned to the client.
   if(req.method==='GET'&&url.pathname==='/api/google/oauth/start') {
