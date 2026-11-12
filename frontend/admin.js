@@ -1,5 +1,5 @@
 (() => {
-  const API='https://jarvis-mobile-edition-alpha.vercel.app', authPanel=document.getElementById('auth-panel'), dashboard=document.getElementById('dashboard'), tokenInput=document.getElementById('admin-token'), authMessage=document.getElementById('auth-message'), message=document.getElementById('dashboard-message');
+  const API='https://jarvis-backend-s5xl.onrender.com', authPanel=document.getElementById('auth-panel'), dashboard=document.getElementById('dashboard'), tokenInput=document.getElementById('admin-token'), authMessage=document.getElementById('auth-message'), message=document.getElementById('dashboard-message');
   let token='', session='';
   const msg=t=>message.textContent=t||'';
   async function request(path, options={}) { const headers={...(options.headers||{}),Authorization:`Bearer ${token}`}; if(session) headers['X-Jarvis-Session']=session; const r=await fetch(API+path,{...options,headers,cache:'no-store'}); const d=await r.json().catch(()=>({})); if(!r.ok) throw Error(d.message||d.error?.message||`Request failed (${r.status})`); return d; }
