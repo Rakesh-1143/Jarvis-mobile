@@ -21,7 +21,8 @@ const TOOL_REGISTRY = {
 
 const jokes = ['Why did the developer go broke? Because they used up all their cache.','I told my computer I needed a break — now it won’t stop sending me vacation ads.'];
 const quotes = ['Small steps every day become big results.','Your future self will thank you for starting today.'];
-function explicit(text) { return /\b(show|tell|give|check|search|find|open|start|roll|flip|translate|convert|define|meaning|generate|play|launch|look|what|how)\b|చెప్పు|చూడు|తెరువు|చేయి|వెతుకు|పంపు/i.test(text); }
+const QUERY_TOOLS = new Set(['weather','currency','meaning','wikipedia','bitcoin','techNews','translate']);
+function explicit(text, tool) { if (QUERY_TOOLS.has(tool) && String(text).trim().split(/\s+/).length <= 6) return true; return /\b(show|tell|give|check|search|find|open|start|roll|flip|translate|convert|define|meaning|generate|play|launch|look|what|how)\b|చెప్పు|చూడు|తెరువు|చేయి|వెతుకు|పంపు/i.test(text); }
 function secondsFrom(text) { const m = text.match(/(\d+(?:\.\d+)?)\s*(seconds?|secs?|minutes?|mins?|hours?|hrs?)/i); if (!m) return 60; const n=Number(m[1]); const u=m[2].toLowerCase(); return Math.max(1, Math.round(n * (u.startsWith('hour')||u.startsWith('hr')?3600:u.startsWith('min')?60:1))); }
 function extractAfter(text, patterns) { for (const p of patterns) { const m=text.match(p); if (m?.[1]) return m[1].trim().replace(/[?.!,]+$/,''); } return ''; }
 function makePassword(length=20) { const chars='ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789!@#$%^&*_-+='; let out=''; const bytes=crypto.randomBytes(length); for(let i=0;i<length;i++) out+=chars[bytes[i]%chars.length]; return out; }

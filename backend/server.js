@@ -55,14 +55,43 @@ async function whatsappRequest(path,payload) {
   const r=await fetch(`${WPP_BRIDGE_URL.replace(/\/$/,'')}${path}`,{method:'POST',headers:{'Content-Type':'application/json','Authorization':`Bearer ${WPP_BRIDGE_TOKEN}`},body:JSON.stringify(payload)});
   const body=await r.json().catch(()=>({})); if(!r.ok) throw new Error(body.message||'WhatsApp bridge request failed'); return {...body,executed:true};
 }
+function weatherWord(code) {
+  const n=Number(code);
+  if(n===0) return 'clear sky'; if(n<=3) return 'partly cloudy'; if(n===45||n===48) return 'foggy';
+  if(n>=51&&n<=57) return 'drizzle'; if(n>=61&&n<=67) return 'rain'; if(n>=71&&n<=77) return 'snow';
+  if(n>=80&&n<=82) return 'rain showers'; if(n>=95) return 'thunderstorm'; return 'mixed weather';
+}
 async function liveTool(tool, text) {
   try {
     if (tool === 'bitcoin') { const r=await fetch('https://api.coingecko.com/api/v3/simple/price?ids=bitcoin&vs_currencies=inr'); if(!r.ok) throw new Error('provider unavailable'); const d=await r.json(); const v=d?.bitcoin?.inr; if(typeof v!=='number') throw new Error('value unavailable'); return {executed:true,tool,message:`Bitcoin price: ₹${v.toLocaleString('en-IN')} (live provider result).`,source:'CoinGecko'}; }
     if (tool === 'currency') { const pair=text.match(/(\d+(?:\.\d+)?)\s*(USD|EUR|GBP|AED|INR)\s*(?:to|in)\s*(INR|USD|EUR|GBP|AED)/i); if(!pair) return {executed:false,tool,message:'Please say an amount and currencies, for example: convert 100 USD to INR.'}; const amount=Number(pair[1]), from=pair[2].toUpperCase(), to=pair[3].toUpperCase(); const r=await fetch(`https://api.frankfurter.app/latest?amount=${amount}&from=${from}&to=${to}`); if(!r.ok) throw new Error('provider unavailable'); const d=await r.json(); const value=d?.rates?.[to]; if(typeof value!=='number') throw new Error('value unavailable'); return {executed:true,tool,message:`${amount} ${from} = ${value.toLocaleString('en-IN')} ${to} (live provider result).`,source:'Frankfurter'}; }
     if (tool === 'wikipedia') { const q=extractAfter(text,[/(?:wikipedia|wiki)\s+(?:search\s+)?(?:for\s+)?(.+)/i]); if(!q) return {executed:false,tool,message:'Please tell me what to search on Wikipedia.'}; const r=await fetch(`https://en.wikipedia.org/api/rest_v1/page/summary/${encodeURIComponent(q.replace(/ /g,'_'))}`); if(!r.ok) throw new Error('page unavailable'); const d=await r.json(); return {executed:true,tool,message:d.extract?`${d.title}: ${d.extract}`:'Wikipedia page found, but its summary is unavailable.',url:d.content_urls?.desktop?.page||`https://en.wikipedia.org/wiki/${encodeURIComponent(q)}`,source:'Wikipedia'}; }
-    if (tool === 'weather') return {executed:false,tool,message:'Weather needs a location. A safe weather proxy is not configured, so I will not guess the weather.'};
-    if (tool === 'techNews') return {executed:false,tool,message:'Tech news provider is not connected. No headlines were invented.'};
-    if (tool === 'meaning') return {executed:false,tool,message:'Word-meaning provider is not connected. No definition was invented.'};
+    if (tool === 'weather') {
+      // Open-Meteo: free, no API key. Default city when none is said.
+      const place=extractAfter(text,[/\b(?:in|at|for)\s+([A-Za-z][A-Za-z .'-]{1,60})/i]).replace(/\s+(?:today|now|tomorrow|please|right now)$/i,'')||'Hyderabad';
+      const g=await fetch(`https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(place)}&count=1&language=en&format=json`); if(!g.ok) throw new Error('provider unavailable');
+      const loc=(await g.json())?.results?.[0]; if(!loc) return {executed:false,tool,message:`I could not find a place called “${place}”. Try: weather in Hyderabad.`};
+      const r=await fetch(`https://api.open-meteo.com/v1/forecast?latitude=${loc.latitude}&longitude=${loc.longitude}&current=temperature_2m,relative_humidity_2m,weather_code,wind_speed_10m&timezone=auto`); if(!r.ok) throw new Error('provider unavailable');
+      const c=(await r.json())?.current; if(typeof c?.temperature_2m!=='number') throw new Error('value unavailable');
+      return {executed:true,tool,speak:true,source:'Open-Meteo',message:`Weather in ${loc.name}${loc.country?', '+loc.country:''}: ${Math.round(c.temperature_2m)}°C, ${weatherWord(c.weather_code)}, humidity ${c.relative_humidity_2m}%, wind ${Math.round(c.wind_speed_10m)} km/h.`};
+    }
+    if (tool === 'techNews') {
+      // Hacker News public API: free, no API key.
+      const r=await fetch('https://hacker-news.firebaseio.com/v0/topstories.json'); if(!r.ok) throw new Error('provider unavailable');
+      const ids=((await r.json())||[]).slice(0,5);
+      const items=(await Promise.all(ids.map(id=>fetch(`https://hacker-news.firebaseio.com/v0/item/${id}.json`).then(x=>x.ok?x.json():null).catch(()=>null)))).filter(x=>x&&x.title);
+      if(!items.length) throw new Error('value unavailable');
+      return {executed:true,tool,source:'Hacker News',message:'Top tech news now:\n'+items.map((x,i)=>`${i+1}. ${x.title}`).join('\n')};
+    }
+    if (tool === 'meaning') {
+      const word=extractAfter(text,[/(?:meaning of|define|definition of)\s+([A-Za-z-]+)/i,/what does\s+([A-Za-z-]+)\s+mean/i,/([A-Za-z-]+)\s+meaning/i]);
+      if(!word) return {executed:false,tool,message:'Tell me the word. For example: meaning of happy.'};
+      const r=await fetch(`https://api.dictionaryapi.dev/api/v2/entries/en/${encodeURIComponent(word.toLowerCase())}`);
+      if(r.status===404) return {executed:false,tool,message:`I could not find the word “${word}” in the dictionary.`};
+      if(!r.ok) throw new Error('provider unavailable');
+      const m=(await r.json())?.[0]?.meanings?.[0]; const def=m?.definitions?.[0]?.definition; if(!def) throw new Error('value unavailable');
+      return {executed:true,tool,speak:true,source:'Free Dictionary',message:`${word} (${m.partOfSpeech}): ${def}`};
+    }
   } catch (_) { return {executed:false,tool,unavailable:true,message:`${TOOL_REGISTRY[tool].name} is temporarily unavailable. No value was invented.`}; }
   return {executed:false,tool,unavailable:true,message:`${TOOL_REGISTRY[tool].name} is unavailable.`};
 }
@@ -70,7 +99,7 @@ async function routeCommand(body) {
   const text=String(body.text||'').trim(); if(!text) throw new Error('Command text is required');
   const everydayTool=detectEverydayTool(text);
   if (everydayTool) {
-    if (!everydayExplicit(text)) return {executed:false,explicitOnly:true,tool:everydayTool,message:`${TOOL_REGISTRY[everydayTool].name} is ready. Please explicitly ask me to use it.`};
+    if (!everydayExplicit(text,everydayTool)) return {executed:false,explicitOnly:true,tool:everydayTool,message:`${TOOL_REGISTRY[everydayTool].name} is ready. Please explicitly ask me to use it.`};
     if (TOOL_REGISTRY[everydayTool].kind === 'local') return runLocalTool(everydayTool,text);
     return liveTool(everydayTool,text);
   }
@@ -83,6 +112,13 @@ async function routeCommand(body) {
     return { executed: false, skill, action: 'report', report: buildDailyAiLaunchUpdate(), message: 'Daily AI launch update requested explicitly. No message was sent and nothing was scheduled.' };
   }
   if(SKILL_HANDLERS[skill]) return handleSkill(skill);
+  if(skill==='search'||skill==='youtube') {
+    // No paid search API is set up, so open the results page instead.
+    const q=extractAfter(text,[/\b(?:search|google|find|look up)\b\s+(?:the\s+)?(?:web|internet|google|youtube)?\s*(?:for|about)?\s*(.+)/i,/\b(?:show|play|open)\b\s+(?:me\s+)?(.+?)(?:\s+on\s+youtube)?$/i]).replace(/\s+on\s+(?:google|youtube)$/i,'').replace(/^(?:the\s+)?(?:web|internet|google|youtube|videos?)$/i,'');
+    if(!q) return {executed:false,skill,message:'Tell me what to search for. For example: search the web for best phones 2026.'};
+    const yt=skill==='youtube';
+    return {executed:true,skill,url:yt?`https://www.youtube.com/results?search_query=${encodeURIComponent(q)}`:`https://www.google.com/search?q=${encodeURIComponent(q)}`,message:`Opening ${yt?'YouTube':'Google'} results for “${q}”.`};
+  }
   if(skill==='whatsapp') {
     if(/\b(open|launch|start)\b.*whatsapp|whatsapp.*\b(open|launch|start)\b/i.test(text)) return {executed:true,skill,action:'open',url:'https://wa.me/',message:'Opening WhatsApp. No message was sent.'};
     return {executed:false,skill,action:'send_or_reply',requires:['recipient','message'],providerConnected:Boolean(WPP_BRIDGE_URL&&WPP_BRIDGE_TOKEN),message:'WhatsApp command received, but no message was sent without a connected bridge and complete recipient/message.'};

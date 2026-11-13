@@ -112,7 +112,7 @@
     <div class="composer-wrap">
       <div class="composer" role="group" aria-label="Message composer">
         <button id="attach-btn" class="composer-icon" type="button" aria-label="Attach a file" aria-expanded="false"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg></button>
-        <input id="img-input" type="file" accept="image/*,.pdf,.txt,.doc,.docx" hidden>
+        <input id="img-input" type="file" accept="image/*,.pdf,.txt" hidden>
         <input id="msg" type="text" placeholder="Talk or message KALKI..." autocomplete="off" enterkeyhint="send">
         <button id="mic-btn" class="composer-icon voice-conversation-toggle" type="button" aria-label="Start voice conversation" title="Start voice conversation" aria-pressed="false">🎙</button>
         <button id="send" class="send-button" type="button" aria-label="Send message">↑</button>
@@ -167,7 +167,7 @@
   </aside>
   <div class="sheet-backdrop"></div>
 
-  <script src="script.js?v=bugfix-1"></script>
+  <script src="script.js?v=bugfix-2"></script>
   <script src="advanced-intelligence.js"></script>
   <script src="social-agent.js?v=local-preview-1"></script>
   <script>
@@ -306,7 +306,19 @@
     attachButton?.addEventListener('click', (event) => { event.stopPropagation(); toggleAttachment(attachmentMenu?.hidden !== false); });
     document.getElementById('cam-btn')?.addEventListener('click', () => { toggleAttachment(false); fileInput?.click(); });
     document.getElementById('file-btn')?.addEventListener('click', () => { toggleAttachment(false); fileInput?.click(); });
-    fileInput?.addEventListener('change', () => { const file = fileInput.files?.[0]; const input = document.getElementById('msg'); if (file && input) { input.value = `Please review this file: ${file.name}`; input.focus(); } });
+    fileInput?.addEventListener('change', () => {
+      // Read the file so the next message sends it to Gemini (images, PDF and text only).
+      const file = fileInput.files?.[0]; const input = document.getElementById('msg'); fileInput.value = '';
+      if (!file || !input) return;
+      const type = file.type || (/\.txt$/i.test(file.name) ? 'text/plain' : '');
+      const status = document.getElementById('voice-mode-status');
+      if (!/^image\/|^application\/pdf$|^text\/plain$/.test(type)) { window.kalkiPendingFile = null; if (status) status.textContent = `${file.name}: only images, PDF and .txt files can be read. Word files are not supported.`; return; }
+      if (file.size > 15 * 1024 * 1024) { window.kalkiPendingFile = null; if (status) status.textContent = `${file.name} is too big. Please pick a file under 15 MB.`; return; }
+      const reader = new FileReader();
+      reader.onload = () => { window.kalkiPendingFile = { name: file.name, mimeType: type, data: String(reader.result).split(',')[1] || '' }; input.value = `Please look at this file (${file.name}) and tell me what it says.`; input.focus(); if (status) status.textContent = `📎 ${file.name} attached. Edit the question if you like, then press Send.`; };
+      reader.onerror = () => { window.kalkiPendingFile = null; if (status) status.textContent = 'Could not read that file. Please try another one.'; };
+      reader.readAsDataURL(file);
+    });
     document.addEventListener('click', (event) => { if (attachmentMenu && !attachmentMenu.contains(event.target) && event.target !== attachButton) toggleAttachment(false); });
     // UI helpers: suggestions, tools, new chat, voice orb, and voice-state styling hooks.
     const msgInput = document.getElementById('msg');

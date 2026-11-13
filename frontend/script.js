@@ -228,12 +228,18 @@ document.addEventListener("DOMContentLoaded", () => {
         }
 
         const contents = readMemory()
-            .filter((item) => item.type === "user" || item.type === "ai")
+            .filter((item) => (item.type === "user" || item.type === "ai") && item.sender !== "SYSTEM")
             .slice(-20)
             .map((item) => ({
                 role: item.type === "user" ? "user" : "model",
                 parts: [{ text: item.text }]
             }));
+        // A file picked with the + button is sent with this message so Gemini can read it.
+        const file = window.kalkiPendingFile;
+        window.kalkiPendingFile = null;
+        if (file && contents.length && contents[contents.length - 1].role === "user") {
+            contents[contents.length - 1].parts.push({ inlineData: { mimeType: file.mimeType, data: file.data } });
+        }
 
         const apiBase =
             "https://generativelanguage.googleapis.com/v1beta/models/";
@@ -438,7 +444,10 @@ document.addEventListener("DOMContentLoaded", () => {
 
     // Same verb list as the backend (backend/everyday-tools.js explicit()), so tool
     // buttons like "Give me motivation" or "Roll a dice" reach the backend.
-    function isExplicitToolRequest(text) {
+    const QUERY_TOOLS = new Set(["weather", "currency", "meaning", "wikipedia", "bitcoin", "techNews", "translate"]);
+    function isExplicitToolRequest(text, tool) {
+        // Short lookups like "weather in Hyderabad" are clear enough on their own.
+        if (QUERY_TOOLS.has(tool) && String(text).trim().split(/\s+/).length <= 6) return true;
         return /\b(show|tell|give|check|search|find|open|start|roll|flip|translate|convert|define|meaning|generate|play|launch|look|what|how)\b|చెప్పు|చూడు|తెరువు|చేయి|వెతుకు|పంపు/i.test(text);
     }
 
@@ -486,7 +495,7 @@ document.addEventListener("DOMContentLoaded", () => {
     }
     function handleLocalCommand(text) {
         const command = normalizeCommand(text);
-        const draft = parseWhatsAppSend(command);
+        const draft = parseWhatsAppSend(String(text).trim()) || parseWhatsAppSend(command);
         if (draft) {
             sendWhatsAppDraft(draft.to, draft.message);
             return true;
@@ -668,11 +677,12 @@ document.addEventListener("DOMContentLoaded", () => {
             if (!ttsAutoRead?.checked) speak("Voice conversation stopped.");
             return;
         }
-        if (/whats?app/i.test(commandText) && handleLocalCommand(commandText)) {
+        if (/whats?app/i.test(commandText) && handleLocalCommand(userText)) {
             finishVoiceTurn();
             return;
         }
-        const desktopAction = detectDesktopAction(commandText);
+        const hasPendingFile = Boolean(window.kalkiPendingFile);
+        const desktopAction = hasPendingFile ? null : detectDesktopAction(commandText);
         if (desktopAction) {
             showDesktopApprovalCard(desktopAction);
             if (voiceConversationActive) {
@@ -683,23 +693,28 @@ document.addEventListener("DOMContentLoaded", () => {
         }
         const everydayTool = detectEverydayTool(commandText);
         const requestedSkill = detectSkill(commandText);
-        if ((everydayTool && isExplicitToolRequest(commandText)) || (requestedSkill && isExplicitAction(commandText))) {
-            if (requestedSkill === "whatsapp" && handleLocalCommand(commandText)) return;
+        if (!hasPendingFile && ((everydayTool && isExplicitToolRequest(commandText, everydayTool)) || (requestedSkill && isExplicitAction(commandText)))) {
+            if (requestedSkill === "whatsapp" && handleLocalCommand(userText)) { finishVoiceTurn(); return; }
+            let askAi = false;
             try {
                 const result = await sendBackendCommand(commandText);
+                // Backend can't do this one itself (for example translation): let Gemini answer.
+                if (result.needsAI && getApiKey()) askAi = true;
+                else {
                 showMessage("KALKI", result.message || result.reason || "Command received.", "ai");
-                if (result.url && result.executed && (result.tool === "openYouTube" || result.tool === "openGoogle" || result.tool === "youtubeSearch" || result.tool === "wikipedia")) openLink(result.url);
+                if (result.url && result.executed) openLink(result.url);
                 if (result.notify && result.seconds) {
                     window.setTimeout(() => { const text = "⏰ Timer complete!"; showMessage("KALKI", text, "ai"); if (!ttsAutoRead?.checked && !voiceConversationActive) speak(text); if (window.Notification && Notification.permission === "granted") new Notification("KALKI", { body: text }); }, result.seconds * 1000);
                     if (window.Notification && Notification.permission === "default") Notification.requestPermission().catch(() => {});
                 } else if (result.speak && !ttsAutoRead?.checked && !voiceConversationActive) speak(result.message || "Done");
+                }
             } catch (error) {
                 console.error("JARVIS backend bridge error:", error);
-                showMessage("SYSTEM", "Backend command bridge unavailable. Nothing was executed.", "ai");
+                showMessage("SYSTEM", "Server is not reachable right now (it may be waking up, which can take up to a minute). Please try again. Nothing was executed.", "ai");
             } finally {
-                finishVoiceTurn();
+                if (!askAi) finishVoiceTurn();
             }
-            return;
+            if (!askAi) return;
         }
 
         if (handleLocalCommand(userText)) {
