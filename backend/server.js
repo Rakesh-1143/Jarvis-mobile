@@ -9,6 +9,7 @@ const { SKILL_HANDLERS, handleSkill } = require('./zapia-skills');
 const { TOOL_REGISTRY, detectEverydayTool, runLocalTool, explicit: everydayExplicit, extractAfter } = require('./everyday-tools');
 const ADVANCED = require('./advanced-intelligence');
 const INTERACTION = require('./interaction-brain');
+const GOOGLE_DATA = require('./google-data');
 
 const PORT = Number(process.env.PORT || 8787);
 const API_TOKEN = process.env.JARVIS_API_TOKEN || '';
@@ -103,6 +104,8 @@ async function routeCommand(body) {
     if (TOOL_REGISTRY[everydayTool].kind === 'local') return runLocalTool(everydayTool,text);
     return liveTool(everydayTool,text);
   }
+  const googleIntent=GOOGLE_DATA.detectGoogleIntent(text);
+  if(googleIntent) return GOOGLE_DATA.answerGoogle(googleIntent,text);
   const skill=detectSkill(text);
   if(!skill || !isExplicitAction(text)) return {executed:false,explicitOnly:true,reason:'Ask with an explicit action (for example: search, create, send, or show).'};
   if(skill==='youtubeAnalytics') {
@@ -155,7 +158,7 @@ async function handleRequest(req,res) {
     if(!state) return json(res,400,{ok:false,message:'Invalid or expired Google OAuth state'});
     if(url.searchParams.get('error')) return json(res,400,{ok:false,message:'Google authorization was not completed'});
     const code=url.searchParams.get('code'); if(!code) return json(res,400,{ok:false,message:'Google authorization code is missing'});
-    try { await GOOGLE.secureTokenStore.set(state.provider,await GOOGLE.exchangeCode(code)); res.writeHead(200,{'Content-Type':'text/html; charset=utf-8','Cache-Control':'no-store'}); return res.end('<!doctype html><title>Google connected</title><p>Google account connected. You may close this window.</p>'); }
+    try { await GOOGLE.secureTokenStore.set(state.provider,await GOOGLE.exchangeCode(code)); res.writeHead(200,{'Content-Type':'text/html; charset=utf-8','Cache-Control':'no-store'}); return res.end(`<!doctype html><meta name="viewport" content="width=device-width,initial-scale=1"><title>Connected</title><body style="font:16px system-ui;padding:24px;background:#0b0d12;color:#f1f3f7"><h2>✅ ${state.provider==='gmail'?'Gmail':state.provider==='calendar'?'Google Calendar':'Google Drive'} connected</h2><p>Go back to KALKI and ask, for example: <b>${state.provider==='gmail'?'show my emails':state.provider==='calendar'?'what is on my calendar today':'show my drive files'}</b>.</p></body>`); }
     catch(error) { return json(res,503,{ok:false,message:error.message}); }
   }
   try {

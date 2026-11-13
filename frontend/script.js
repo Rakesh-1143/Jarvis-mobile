@@ -693,7 +693,9 @@ document.addEventListener("DOMContentLoaded", () => {
         }
         const everydayTool = detectEverydayTool(commandText);
         const requestedSkill = detectSkill(commandText);
-        if (!hasPendingFile && ((everydayTool && isExplicitToolRequest(commandText, everydayTool)) || (requestedSkill && isExplicitAction(commandText)))) {
+        // Gmail / Calendar / Drive questions like "what's on my calendar today" (same rules as backend/google-data.js).
+        const googleIntent = /\b(?:my|unread|latest|recent|new)\s+(?:\w+\s+)?(?:e-?mails?|mails?|inbox|gmail)\b|\b(?:check|show|read|open)\s+(?:my\s+)?(?:gmail|inbox)\b|\b(?:my|today'?s|tomorrow'?s)\s+(?:\w+\s+)?(?:calendar|events?|meetings?|schedule|agenda)\b|\bon my calendar\b|\b(?:my|recent)\s+(?:\w+\s+)?(?:google\s+)?drive(?:\s+files)?\b|\bmy\s+(?:recent\s+)?files\b/i.test(commandText);
+        if (!hasPendingFile && (googleIntent || (everydayTool && isExplicitToolRequest(commandText, everydayTool)) || (requestedSkill && isExplicitAction(commandText)))) {
             if (requestedSkill === "whatsapp" && handleLocalCommand(userText)) { finishVoiceTurn(); return; }
             let askAi = false;
             try {
