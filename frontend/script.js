@@ -455,8 +455,46 @@ document.addEventListener("DOMContentLoaded", () => {
         showMessage("J.A.R.V.I.S", "Opening WhatsApp. No message was sent.", "ai");
         window.location.href = whatsappUrl;
     }
+    // "send WhatsApp to 9876543210 saying I'm late" -> opens the chat with the
+    // message already typed. The user taps Send in WhatsApp; Jarvis never sends.
+    function parseWhatsAppSend(command) {
+        const c = command.replace(/^(?:hey\s+)?(?:kalki|jarvis)[,\s]+/i, "").replace(/\.+$/, "").trim();
+        const sep = "(?:saying|that|says|with message|message|:)";
+        let m = c.match(new RegExp(`^(?:please\\s+)?(?:send\\s+(?:a\\s+)?)?whats?app(?:\\s+(?:message|msg))?\\s+to\\s+(.+?)\\s+${sep}\\s*(.+)$`, "i"))
+            || c.match(new RegExp(`^(?:please\\s+)?(?:send\\s+(?:a\\s+)?)?(?:message|msg|text)\\s+(?:to\\s+)?(.+?)\\s+on\\s+whats?app\\s*${sep}?\\s*(.+)$`, "i"));
+        if (m) return { to: m[1].trim(), message: m[2].trim() };
+        m = c.match(/^(?:please\s+)?send\s+(.+?)\s+to\s+(.+?)\s+on\s+whats?app$/i);
+        if (m) return { to: m[2].trim(), message: m[1].trim() };
+        return null;
+    }
+    function sendWhatsAppDraft(to, message) {
+        const digits = to.replace(/[\s()+-]/g, "");
+        const text = encodeURIComponent(message);
+        let url, reply;
+        if (/^\d{7,15}$/.test(digits)) {
+            // 10-digit numbers are treated as Indian (+91) numbers.
+            const number = digits.length === 10 ? `91${digits}` : digits;
+            url = `https://wa.me/${number}?text=${text}`;
+            reply = `Opening WhatsApp chat with +${number}. Your message is typed. Tap Send to send it.`;
+        } else {
+            url = `whatsapp://send?text=${text}`;
+            reply = `Opening WhatsApp. Pick ${to} from your chats. Your message is typed. Tap Send to send it.`;
+        }
+        if (voiceConversationActive) stopVoiceConversation(true, "Voice chat stopped while opening WhatsApp.");
+        showMessage("J.A.R.V.I.S", reply, "ai");
+        window.location.href = url;
+    }
     function handleLocalCommand(text) {
         const command = normalizeCommand(text);
+        const draft = parseWhatsAppSend(command);
+        if (draft) {
+            sendWhatsAppDraft(draft.to, draft.message);
+            return true;
+        }
+        if (/\b(send|message|msg|text)\b/i.test(command) && /\bwhats?app\b/i.test(command)) {
+            showMessage("J.A.R.V.I.S", 'Tell me who and what. For example: "send WhatsApp to 9876543210 saying I am on the way". Nothing was sent.', "ai");
+            return true;
+        }
         if (/\b(open|launch|start)\s+(the\s+)?whatsapp\b/i.test(command)
             || /\bwhatsapp\s+(open|launch|start)\b/i.test(command)) {
             if (voiceConversationActive) stopVoiceConversation(true, "Voice chat stopped while opening WhatsApp.");
@@ -628,6 +666,10 @@ document.addEventListener("DOMContentLoaded", () => {
             stopVoiceConversation(true);
             showMessage("KALKI", "Voice conversation stopped.", "ai");
             if (!ttsAutoRead?.checked) speak("Voice conversation stopped.");
+            return;
+        }
+        if (/whats?app/i.test(commandText) && handleLocalCommand(commandText)) {
+            finishVoiceTurn();
             return;
         }
         const desktopAction = detectDesktopAction(commandText);
