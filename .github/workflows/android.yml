@@ -52,10 +52,32 @@ jobs:
           yes | "$SDKMANAGER" --sdk_root="$ANDROID_SDK_ROOT" --licenses >/dev/null || true
           "$SDKMANAGER" --sdk_root="$ANDROID_SDK_ROOT" "platforms;android-35" "build-tools;35.0.0"
 
+      - name: Load fixed signing key
+        env:
+          KEYSTORE_B64: ${{ secrets.JARVIS_KEYSTORE_BASE64 }}
+        shell: bash
+        run: |
+          if [ -z "$KEYSTORE_B64" ]; then
+            echo "::error::Secret JARVIS_KEYSTORE_BASE64 is missing. Without it each build gets a new key and phones show 'App not installed'."
+            exit 1
+          fi
+          echo "$KEYSTORE_B64" | base64 -d > "$RUNNER_TEMP/jarvis.keystore"
+          echo "JARVIS_KEYSTORE_FILE=$RUNNER_TEMP/jarvis.keystore" >> "$GITHUB_ENV"
+
       - name: Build debug APK
         env:
           JARVIS_START_URL: ${{ inputs.JARVIS_START_URL || 'https://rakesh-1143.github.io/Jarvis-mobile/frontend/' }}
-        run: gradle --no-daemon assembleDebug -PJARVIS_START_URL="$JARVIS_START_URL"
+          # Always bigger than the last build, so phones offer "Update".
+          JARVIS_VERSION_CODE: ${{ github.run_number }}0${{ github.run_attempt }}
+        run: gradle --no-daemon assembleDebug -PJARVIS_START_URL="$JARVIS_START_URL" -PJARVIS_VERSION_CODE="$JARVIS_VERSION_CODE"
+
+      - name: Check APK signature and version
+        shell: bash
+        run: |
+          set -euo pipefail
+          BT="${ANDROID_HOME:-$ANDROID_SDK_ROOT}/build-tools/35.0.0"
+          "$BT/apksigner" verify --print-certs app/build/outputs/apk/debug/app-debug.apk
+          "$BT/aapt2" dump badging app/build/outputs/apk/debug/app-debug.apk | head -1
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
