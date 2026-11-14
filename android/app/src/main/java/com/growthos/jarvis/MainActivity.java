@@ -4,7 +4,9 @@ import android.Manifest;
 import android.app.Activity;
 import android.content.*;
 import android.content.pm.PackageManager;
+import android.database.Cursor;
 import android.net.Uri;
+import android.provider.ContactsContract;
 import android.os.*;
 import android.provider.Settings;
 import android.webkit.*;
@@ -15,9 +17,9 @@ import java.util.*;
 
 /** Thin, secure WebView shell with explicit, preview-only Android share handoff. */
 public final class MainActivity extends Activity {
-    private static final int AUDIO_REQUEST=41, WAKE_REQUEST=42, FILE_REQUEST=43, SPEECH_REQUEST=44;
+    private static final int AUDIO_REQUEST=41, WAKE_REQUEST=42, FILE_REQUEST=43, SPEECH_REQUEST=44, CONTACTS_REQUEST=45;
     private WebView webView; private AdvancedIntelligenceBridge advancedBridge; private PermissionRequest pendingPermissionRequest; private ValueCallback<Uri[]> fileCallback;
-    private String pendingShareJson; private SpeechBridge speech; private String pendingSpeechLang;
+    private String pendingShareJson; private String pendingWhatsApp; private SpeechBridge speech; private String pendingSpeechLang;
     private final BroadcastReceiver wakeReceiver=new BroadcastReceiver(){ public void onReceive(Context c,Intent i){
         if(!WakeWordService.ACTION_COMMAND.equals(i.getAction())) return; String command=i.getStringExtra(WakeWordService.EXTRA_COMMAND);
         if(command==null||command.trim().isEmpty()) return; String n=command.trim().toLowerCase(Locale.ROOT);
@@ -86,10 +88,35 @@ public final class MainActivity extends Activity {
         @JavascriptInterface public void openNotificationSettings(){runOnUiThread(()->startActivity(new Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS).putExtra(Settings.EXTRA_APP_PACKAGE,getPackageName())));}
         @JavascriptInterface public void openBatterySettings(){runOnUiThread(()->{try{startActivity(new Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS));}catch(Exception e){startActivity(new Intent(Settings.ACTION_SETTINGS));}});}
         @JavascriptInterface public void openAppSettings(){runOnUiThread(()->startActivity(new Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS,Uri.parse("package:"+getPackageName()))));}
-        @JavascriptInterface public String nativeVersion(){return "kalki-android-0.8.0-voice";}
+        /** Opens a WhatsApp chat with the message typed. The user still taps Send. */
+        @JavascriptInterface public void whatsappToContact(String json){runOnUiThread(()->{if(hasContactsPermission())openWhatsAppForCandidates(json);else{pendingWhatsApp=json;requestPermissions(new String[]{Manifest.permission.READ_CONTACTS},CONTACTS_REQUEST);}});}
+        @JavascriptInterface public String nativeVersion(){return "kalki-android-0.9.0-whatsapp";}
     }
     @Override protected void onActivityResult(int req,int result,Intent data){super.onActivityResult(req,result,data);if(req==AdvancedIntelligenceBridge.SCREEN_CAPTURE_REQUEST&&advancedBridge!=null){advancedBridge.screenResult(result==RESULT_OK);return;}if(req==1203&&advancedBridge!=null){advancedBridge.fileResult(result==RESULT_OK);return;}if(req==FILE_REQUEST&&fileCallback!=null){Uri[] r=WebChromeClient.FileChooserParams.parseResult(result,data);fileCallback.onReceiveValue(r);fileCallback=null;}}
-    @Override public void onRequestPermissionsResult(int c,String[] p,int[] r){super.onRequestPermissionsResult(c,p,r);if(c==SPEECH_REQUEST){String l=pendingSpeechLang;pendingSpeechLang=null;if(hasRecordAudioPermission())speech.start(l);else dispatch("jarvis-native-speech","{\"type\":\"error\",\"error\":\"not-allowed\"}");return;}if(c==AUDIO_REQUEST&&pendingPermissionRequest!=null){if(hasRecordAudioPermission()&&isTrustedOrigin(pendingPermissionRequest.getOrigin()))pendingPermissionRequest.grant(new String[]{PermissionRequest.RESOURCE_AUDIO_CAPTURE});else pendingPermissionRequest.deny();pendingPermissionRequest=null;}else if(c==WAKE_REQUEST&&hasRecordAudioPermission()&&hasNotificationPermission())startWakeService();else if(c==WAKE_REQUEST&&webView!=null)webView.evaluateJavascript("document.getElementById('wake-word-toggle')?.click();document.getElementById('wake-word-toggle')&&(document.getElementById('wake-word-toggle').checked=false);",null);}
+    private boolean hasContactsPermission(){return checkSelfPermission(Manifest.permission.READ_CONTACTS)==PackageManager.PERMISSION_GRANTED;}
+    /** Tries each {to,message} guess; the first name found in contacts wins. Never sends by itself. */
+    private void openWhatsAppForCandidates(String json){
+        try{JSONArray a=new JSONArray(json);if(a.length()==0)return;
+            if(hasContactsPermission()){for(int i=0;i<a.length();i++){JSONObject o=a.getJSONObject(i);String num=findContactNumber(o.optString("to"));if(num!=null){openWhatsAppUrl("https://wa.me/"+num+"?text="+Uri.encode(o.optString("message")));return;}}}
+            JSONObject first=a.getJSONObject(0);
+            Toast.makeText(this,(hasContactsPermission()?"\""+first.optString("to")+"\" is not in your contacts.":"No contacts permission.")+" Pick the chat in WhatsApp.",Toast.LENGTH_LONG).show();
+            openWhatsAppUrl("whatsapp://send?text="+Uri.encode(first.optString("message")));
+        }catch(Exception e){Toast.makeText(this,"Could not open WhatsApp",Toast.LENGTH_SHORT).show();}
+    }
+    private void openWhatsAppUrl(String url){Intent i=new Intent(Intent.ACTION_VIEW,Uri.parse(url));for(String pkg:new String[]{"com.whatsapp","com.whatsapp.w4b",null}){try{i.setPackage(pkg);startActivity(i);return;}catch(Exception ignored){}}Toast.makeText(this,"WhatsApp is not installed",Toast.LENGTH_SHORT).show();}
+    /** Best phone-contact match for a spoken name, as digits with country code (10-digit numbers get 91). */
+    private String findContactNumber(String name){
+        if(name==null)return null;String q=name.trim().toLowerCase(Locale.ROOT);if(q.length()<2||q.matches(".*\\d.*"))return null;
+        String best=null;int bestScore=0;
+        try(Cursor c=getContentResolver().query(ContactsContract.CommonDataKinds.Phone.CONTENT_URI,new String[]{ContactsContract.CommonDataKinds.Phone.DISPLAY_NAME,ContactsContract.CommonDataKinds.Phone.NUMBER},ContactsContract.CommonDataKinds.Phone.DISPLAY_NAME+" LIKE ?",new String[]{"%"+q+"%"},null)){
+            while(c!=null&&c.moveToNext()){String dn=c.getString(0),n=c.getString(1);if(dn==null||n==null)continue;String d=dn.trim().toLowerCase(Locale.ROOT);
+                int score=d.equals(q)?4:(d.startsWith(q+" ")||d.endsWith(" "+q)||d.contains(" "+q+" "))?3:d.startsWith(q)?2:1;
+                String num=normalizePhone(n);if(num!=null&&score>bestScore){best=num;bestScore=score;}}
+        }catch(Exception ignored){}
+        return best;
+    }
+    private static String normalizePhone(String raw){String d=raw.replaceAll("[^0-9]","");if(raw.trim().startsWith("+"))return d.length()>=8?d:null;if(d.startsWith("00"))d=d.substring(2);else if(d.length()==11&&d.startsWith("0"))d="91"+d.substring(1);else if(d.length()==10)d="91"+d;return d.length()>=8?d:null;}
+    @Override public void onRequestPermissionsResult(int c,String[] p,int[] r){super.onRequestPermissionsResult(c,p,r);if(c==CONTACTS_REQUEST){String j=pendingWhatsApp;pendingWhatsApp=null;if(j!=null)openWhatsAppForCandidates(j);return;}if(c==SPEECH_REQUEST){String l=pendingSpeechLang;pendingSpeechLang=null;if(hasRecordAudioPermission())speech.start(l);else dispatch("jarvis-native-speech","{\"type\":\"error\",\"error\":\"not-allowed\"}");return;}if(c==AUDIO_REQUEST&&pendingPermissionRequest!=null){if(hasRecordAudioPermission()&&isTrustedOrigin(pendingPermissionRequest.getOrigin()))pendingPermissionRequest.grant(new String[]{PermissionRequest.RESOURCE_AUDIO_CAPTURE});else pendingPermissionRequest.deny();pendingPermissionRequest=null;}else if(c==WAKE_REQUEST&&hasRecordAudioPermission()&&hasNotificationPermission())startWakeService();else if(c==WAKE_REQUEST&&webView!=null)webView.evaluateJavascript("document.getElementById('wake-word-toggle')?.click();document.getElementById('wake-word-toggle')&&(document.getElementById('wake-word-toggle').checked=false);",null);}
     @Override public void onBackPressed(){if(webView!=null&&webView.canGoBack())webView.goBack();else super.onBackPressed();}
     @Override protected void onDestroy(){stopWakeService();if(speech!=null)speech.destroy();if(fileCallback!=null)fileCallback.onReceiveValue(null);if(webView!=null){webView.removeJavascriptInterface("JarvisNative");webView.removeJavascriptInterface("JarvisAdvanced");webView.destroy();}super.onDestroy();}
 }
