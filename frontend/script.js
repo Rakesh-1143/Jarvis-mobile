@@ -464,40 +464,71 @@ document.addEventListener("DOMContentLoaded", () => {
         showMessage("J.A.R.V.I.S", "Opening WhatsApp. No message was sent.", "ai");
         window.location.href = whatsappUrl;
     }
-    // "send WhatsApp to 9876543210 saying I'm late" -> opens the chat with the
-    // message already typed. The user taps Send in WhatsApp; Jarvis never sends.
+    // "send WhatsApp to Ravi saying hello", "open whatsapp sending hello ravi", ...
+    // -> opens the chat with the message already typed. The user taps Send in
+    // WhatsApp; Jarvis never sends by itself. Returns candidate {to, message}
+    // pairs, best guess first (the Android app checks which name is a contact).
     function parseWhatsAppSend(command) {
-        const c = command.replace(/^(?:hey\s+)?(?:kalki|jarvis)[,\s]+/i, "").replace(/\.+$/, "").trim();
+        let c = String(command).replace(/^(?:hey\s+)?(?:kalki|jarvis)[,\s]+/i, "").replace(/[.!]+$/, "").replace(/\s+/g, " ").trim();
+        if (!/\bwhats?\s?app\b/i.test(c)) return null;
         const sep = "(?:saying|that|says|with message|message|:)";
         let m = c.match(new RegExp(`^(?:please\\s+)?(?:send\\s+(?:a\\s+)?)?whats?app(?:\\s+(?:message|msg))?\\s+to\\s+(.+?)\\s+${sep}\\s*(.+)$`, "i"))
             || c.match(new RegExp(`^(?:please\\s+)?(?:send\\s+(?:a\\s+)?)?(?:message|msg|text)\\s+(?:to\\s+)?(.+?)\\s+on\\s+whats?app\\s*${sep}?\\s*(.+)$`, "i"));
-        if (m) return { to: m[1].trim(), message: m[2].trim() };
+        if (m) return [{ to: m[1].trim(), message: m[2].trim() }];
         m = c.match(/^(?:please\s+)?send\s+(.+?)\s+to\s+(.+?)\s+on\s+whats?app$/i);
-        if (m) return { to: m[2].trim(), message: m[1].trim() };
-        return null;
+        if (m) return [{ to: m[2].trim(), message: m[1].trim() }];
+        // Looser phrasing: drop "open whatsapp (and)" / "on whatsapp", then a send verb.
+        c = c.replace(/^(?:please\s+)?(?:open|launch|start)\s+(?:the\s+)?whats?\s?app\s*(?:and\s+|then\s+|,\s*)?/i, "")
+            .replace(/\s+(?:on|in|via|through|using)\s+whats?\s?app$/i, "")
+            .replace(/^whats?\s?app\s+/i, "").trim();
+        const verb = c.match(/^(send(?:ing)?|message|msg|text|tell|say)\s+(?:(?:a\s+)?(?:whats?\s?app\s+)?(?:message|msg)\s+)?(.+)$/i);
+        if (!verb) return null;
+        const tellFirst = /^(tell|message|msg|text)/i.test(verb[1]);
+        let body = verb[2].replace(/^(?:a\s+)?(?:whats?\s?app\b\s*)?(?:(?:message|msg)\b\s*)?/i, "").trim();
+        if (!body) return null;
+        m = body.match(new RegExp(`^(?:to\\s+)?(.+?)\\s+${sep}\\s+(.+)$`, "i"));
+        if (m) return [{ to: m[1].trim(), message: m[2].trim() }];
+        m = body.match(/^(.+?)\s+to\s+(\S+(?:\s+\S+)?)$/i);
+        if (m) return [{ to: m[2].trim(), message: m[1].trim() }, { to: m[2].split(" ")[0], message: m[1].trim() }];
+        m = body.match(/^to\s+(\S+)\s+(.+)$/i);
+        if (m) return [{ to: m[1], message: m[2].trim() }];
+        const phone = body.match(/\+?\d[\d\s-]{8,}\d/);
+        if (phone) {
+            const message = body.replace(phone[0], " ").replace(/\s+/g, " ").replace(/^to\s+/i, "").trim();
+            return message ? [{ to: phone[0], message }] : null;
+        }
+        const words = body.split(" ");
+        if (words.length < 2) return null;
+        const last = { to: words[words.length - 1], message: words.slice(0, -1).join(" ") };
+        const first = { to: words[0], message: words.slice(1).join(" ") };
+        return tellFirst ? [first, last] : [last, first];
     }
-    function sendWhatsAppDraft(to, message) {
+    function sendWhatsAppDraft(candidates) {
+        const { to, message } = candidates[0];
         const digits = to.replace(/[\s()+-]/g, "");
         const text = encodeURIComponent(message);
-        let url, reply;
+        if (voiceConversationActive) stopVoiceConversation(true, "Voice chat stopped while opening WhatsApp.");
         if (/^\d{7,15}$/.test(digits)) {
             // 10-digit numbers are treated as Indian (+91) numbers.
             const number = digits.length === 10 ? `91${digits}` : digits;
-            url = `https://wa.me/${number}?text=${text}`;
-            reply = `Opening WhatsApp chat with +${number}. Your message is typed. Tap Send to send it.`;
-        } else {
-            url = `whatsapp://send?text=${text}`;
-            reply = `Opening WhatsApp. Pick ${to} from your chats. Your message is typed. Tap Send to send it.`;
+            showMessage("J.A.R.V.I.S", `Opening WhatsApp chat with +${number}. "${message}" is typed. Tap Send to send it.`, "ai");
+            window.location.href = `https://wa.me/${number}?text=${text}`;
+            return;
         }
-        if (voiceConversationActive) stopVoiceConversation(true, "Voice chat stopped while opening WhatsApp.");
-        showMessage("J.A.R.V.I.S", reply, "ai");
-        window.location.href = url;
+        if (window.JarvisNative && typeof window.JarvisNative.whatsappToContact === "function") {
+            // The Android app finds the name in your phone contacts and opens that chat.
+            showMessage("J.A.R.V.I.S", `Opening ${to}'s WhatsApp chat. "${message}" is typed. Tap Send to send it.`, "ai");
+            window.JarvisNative.whatsappToContact(JSON.stringify(candidates));
+            return;
+        }
+        showMessage("J.A.R.V.I.S", `Opening WhatsApp. Pick ${to} from your chats. "${message}" is typed. Tap Send to send it.`, "ai");
+        window.location.href = `whatsapp://send?text=${text}`;
     }
     function handleLocalCommand(text) {
         const command = normalizeCommand(text);
         const draft = parseWhatsAppSend(String(text).trim()) || parseWhatsAppSend(command);
         if (draft) {
-            sendWhatsAppDraft(draft.to, draft.message);
+            sendWhatsAppDraft(draft);
             return true;
         }
         if (/\b(send|message|msg|text)\b/i.test(command) && /\bwhats?app\b/i.test(command)) {
