@@ -64,6 +64,9 @@ jobs:
           echo "$KEYSTORE_B64" | base64 -d > "$RUNNER_TEMP/jarvis.keystore"
           echo "JARVIS_KEYSTORE_FILE=$RUNNER_TEMP/jarvis.keystore" >> "$GITHUB_ENV"
 
+      - name: Run unit tests
+        run: gradle --no-daemon testDebugUnitTest
+
       - name: Build debug APK
         env:
           JARVIS_START_URL: ${{ inputs.JARVIS_START_URL || 'https://rakesh-1143.github.io/Jarvis-mobile/frontend/' }}

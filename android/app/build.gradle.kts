@@ -18,6 +18,8 @@ android {
         targetSdk = 35
         versionCode = appVersionCode
         versionName = "0.7.$appVersionCode"
+        // Moto G31 and most phones are arm64; armeabi-v7a keeps older 32-bit phones working.
+        ndk { abiFilters += listOf("arm64-v8a", "armeabi-v7a") }
         buildConfigField("String", "JARVIS_START_URL", "\"${startUrl.get().replace("\\", "\\\\").replace("\"", "\\\"")}\"")
     }
 
@@ -54,4 +56,10 @@ android {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
     }
+}
+
+dependencies {
+    // Offline wake word engine runtime (MIT licence, free, no key). Models are in assets/wakeword.
+    implementation("com.microsoft.onnxruntime:onnxruntime-android:1.29.0")
+    testImplementation("junit:junit:4.13.2")
 }

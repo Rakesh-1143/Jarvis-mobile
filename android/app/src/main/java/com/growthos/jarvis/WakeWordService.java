@@ -1,173 +1,429 @@
 package com.growthos.jarvis;
 
+import android.Manifest;
 import android.app.Notification;
 import android.app.NotificationChannel;
 import android.app.NotificationManager;
 import android.app.PendingIntent;
 import android.app.Service;
+import android.content.ComponentName;
+import android.content.Context;
 import android.content.Intent;
+import android.content.SharedPreferences;
+import android.content.pm.PackageManager;
+import android.content.pm.ResolveInfo;
+import android.content.pm.ServiceInfo;
+import android.media.AudioAttributes;
+import android.media.AudioFormat;
+import android.media.AudioManager;
+import android.media.AudioRecord;
+import android.media.MediaRecorder;
+import android.os.BatteryManager;
 import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.IBinder;
 import android.os.Looper;
+import android.os.SystemClock;
 import android.speech.RecognitionListener;
 import android.speech.RecognizerIntent;
 import android.speech.SpeechRecognizer;
 import android.speech.tts.TextToSpeech;
-
+import android.speech.tts.UtteranceProgressListener;
+import android.util.Log;
+import java.io.ByteArrayOutputStream;
+import java.io.InputStream;
+import java.text.DateFormat;
 import java.util.ArrayList;
+import java.util.Date;
+import java.util.List;
 import java.util.Locale;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
 
 /**
- * Explicitly enabled, user-visible microphone foreground service; never started at boot.
+ * The only part of Jarvis that uses the microphone.
  *
- * Android's SpeechRecognizer is an utterance recognizer, not a true always-on keyword
- * engine. On Android 12+ this requests the platform on-device recognizer when available
- * (no app secret and lower latency); otherwise it falls back to the platform recognizer.
- * This is not a bundled hotword model and availability depends on the device language pack.
+ * While waiting, audio is checked on the phone by {@link WakeWordEngine} in 80 ms pieces and
+ * thrown away: never saved, never sent. After "Hey Jarvis" the mic is released, Jarvis says
+ * "Yes Boss?", and the phone's speech recognizer hears one command. Then waiting starts again.
+ * A visible notification (with Pause and Stop) is shown the whole time.
  */
 public final class WakeWordService extends Service {
+    private static final String TAG = "JarvisWake";
+    // Kept for MainActivity's old receiver; no longer sent.
     public static final String ACTION_COMMAND = "com.growthos.jarvis.WAKE_COMMAND";
     public static final String EXTRA_COMMAND = "command";
     public static final String ACTION_STOP = "com.growthos.jarvis.STOP_WAKE";
+    public static final String ACTION_PAUSE = "com.growthos.jarvis.PAUSE_WAKE";
+    public static final String ACTION_RESUME = "com.growthos.jarvis.RESUME_WAKE";
+    /** Skip the wake word and take one command now (assist gesture). */
+    public static final String ACTION_LISTEN_NOW = "com.growthos.jarvis.LISTEN_NOW";
+
+    static final String PREFS = "jarvis_settings";
+    static final String KEY_ENABLED = "wake_enabled", KEY_PAUSED_UNTIL = "paused_until", KEY_THRESHOLD = "wake_threshold";
+    static final String KEY_LAST_WAKE = "last_wake_at", KEY_LAST_SCORE = "last_wake_score", KEY_LAST_COMMAND = "last_command";
+    static final String KEY_STARTED_AT = "listening_started_at", KEY_START_BATTERY = "listening_start_battery", KEY_CPU = "wake_cpu_ms", KEY_ERROR = "last_error";
     private static final String CHANNEL = "jarvis_wake_word";
     private static final int NOTIFICATION_ID = 812;
-    private static final long RESTART_DELAY_MS = 55L;
-    private static final long RETRY_DELAY_MS = 300L;
-    private static final long DUPLICATE_CALLBACK_WINDOW_MS = 650L;
-    private static final String ACK = "చెప్పండి Boss";
-    private static final Pattern WAKE = Pattern.compile(
-            "^(?:hey|hai|hi)\\s+(?:kalki|kalkee|kalky|jarvis|jaarvis|jarv(?:i|e)s|jervis)\\b[,:;.!?\\s]*(.*)$",
-            Pattern.CASE_INSENSITIVE | Pattern.UNICODE_CASE);
-    private static final Pattern STOP = Pattern.compile(
-            "^(?:stop|స్టాప్)\\s+(?:kalki|కల్కి|jarvis|జార్విస్)\\b.*$",
-            Pattern.CASE_INSENSITIVE | Pattern.UNICODE_CASE);
+    private static final long PAUSE_MS = 30 * 60 * 1000L, COMMAND_TIMEOUT_MS = 12000L, RESPONSE_WATCHDOG_MS = 30000L;
+    private static final float DEFAULT_THRESHOLD = 0.5f;
 
-    private enum Mode { WAKE, COMMAND }
-    private final Handler handler = new Handler(Looper.getMainLooper());
-    private SpeechRecognizer recognizer;
-    private TextToSpeech tts;
-    private Mode mode = Mode.WAKE;
-    private boolean listening;
-    private boolean stopping;
-    private boolean ttsReady;
-    private String pendingSpeech;
-    private long session;
-    private long handledSession = -1L;
-    private String lastCallbackText = "";
-    private long lastCallbackAt;
-    private final Runnable startRunnable = this::startRecognition;
     /** Read by the setup screen. */
     static volatile boolean running;
+    static volatile String state = "Off";
+
+    private enum Mode { WAITING, RESPONDING, PAUSED }
+
+    private final Handler main = new Handler(Looper.getMainLooper());
+    private volatile Mode mode = Mode.WAITING;
+    private volatile boolean stopping;
+    private Thread audioThread;
+    private WakeWordEngine engine;
+    private TextToSpeech tts;
+    private boolean ttsReady;
+    private SpeechRecognizer recognizer;
+    private Runnable afterSpeech;
+    private boolean commandOnly;
+
+    public static SharedPreferences prefs(Context c) { return c.getSharedPreferences(PREFS, MODE_PRIVATE); }
+
+    public static boolean isEnabled(Context c) { return prefs(c).getBoolean(KEY_ENABLED, false); }
+
+    /** Turns always-on listening on or off and starts or stops the service. */
+    public static void setEnabled(Context c, boolean on) {
+        prefs(c).edit().putBoolean(KEY_ENABLED, on).putLong(KEY_PAUSED_UNTIL, 0).apply();
+        if (on) start(c, null); else c.stopService(new Intent(c, WakeWordService.class));
+    }
+
+    /** Starts the service if allowed. Returns false when Android refuses. */
+    public static boolean start(Context c, String action) {
+        if (c.checkSelfPermission(Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) return false;
+        Intent i = new Intent(c, WakeWordService.class);
+        if (action != null) i.setAction(action);
+        try {
+            if (Build.VERSION.SDK_INT >= 26) c.startForegroundService(i); else c.startService(i);
+            return true;
+        } catch (Exception e) {
+            Log.w(TAG, "start refused", e);
+            prefs(c).edit().putString(KEY_ERROR, "Android did not allow starting: " + e.getClass().getSimpleName()).apply();
+            return false;
+        }
+    }
 
     @Override public void onCreate() {
         super.onCreate();
-        running = true;
         createChannel();
-        startForeground(NOTIFICATION_ID, notification());
+        if (!goForeground(notification("Starting…", false))) { stopSelf(); return; }
+        running = true;
+        stopping = false;
+        prefs(this).edit().putLong(KEY_STARTED_AT, System.currentTimeMillis()).putInt(KEY_START_BATTERY, batteryPercent()).remove(KEY_ERROR).apply();
         tts = new TextToSpeech(this, status -> {
             ttsReady = status == TextToSpeech.SUCCESS;
-            if (ttsReady) {
-                int result = tts.setLanguage(new Locale("te", "IN"));
-                if (result == TextToSpeech.LANG_MISSING_DATA || result == TextToSpeech.LANG_NOT_SUPPORTED)
-                    tts.setLanguage(new Locale("en", "IN"));
-                if (pendingSpeech != null) { tts.speak(pendingSpeech, TextToSpeech.QUEUE_FLUSH, null, "kalki-ack"); pendingSpeech = null; }
-            }
+            if (!ttsReady) return;
+            int r = tts.setLanguage(new Locale("en", "IN"));
+            if (r == TextToSpeech.LANG_MISSING_DATA || r == TextToSpeech.LANG_NOT_SUPPORTED) tts.setLanguage(Locale.US);
+            tts.setAudioAttributes(new AudioAttributes.Builder().setUsage(AudioAttributes.USAGE_ASSISTANT).setContentType(AudioAttributes.CONTENT_TYPE_SPEECH).build());
+            tts.setOnUtteranceProgressListener(new UtteranceProgressListener() {
+                @Override public void onStart(String id) { }
+                @Override public void onDone(String id) { main.post(WakeWordService.this::speechFinished); }
+                @Override public void onError(String id) { main.post(WakeWordService.this::speechFinished); }
+            });
         });
-        if (!SpeechRecognizer.isRecognitionAvailable(this)) return;
-        if (Build.VERSION.SDK_INT >= 31 && SpeechRecognizer.isOnDeviceRecognitionAvailable(this))
-            recognizer = SpeechRecognizer.createOnDeviceSpeechRecognizer(this);
-        else recognizer = SpeechRecognizer.createSpeechRecognizer(this);
-        recognizer.setRecognitionListener(new RecognitionListener() {
-            @Override public void onResults(Bundle results) { handle(results); }
-            @Override public void onPartialResults(Bundle results) { handlePartial(results); }
-            @Override public void onError(int error) { listening = false; scheduleRestart(RETRY_DELAY_MS); }
-            @Override public void onEndOfSpeech() { listening = false; scheduleRestart(RESTART_DELAY_MS); }
-            @Override public void onReadyForSpeech(Bundle b) { }
-            @Override public void onBeginningOfSpeech() { }
-            @Override public void onBufferReceived(byte[] b) { }
-            @Override public void onEvent(int t, Bundle b) { }
-            @Override public void onRmsChanged(float r) { }
-        });
-        scheduleRestart(0L);
     }
 
-    private Intent speechIntent() {
+    private boolean goForeground(Notification n) {
+        try {
+            if (Build.VERSION.SDK_INT >= 30) startForeground(NOTIFICATION_ID, n, ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE);
+            else startForeground(NOTIFICATION_ID, n);
+            return true;
+        } catch (Exception e) {
+            Log.w(TAG, "startForeground refused", e);
+            prefs(this).edit().putString(KEY_ERROR, "Android did not allow the microphone service: " + e.getClass().getSimpleName()).apply();
+            return false;
+        }
+    }
+
+    @Override public int onStartCommand(Intent intent, int flags, int startId) {
+        if (!running) return START_NOT_STICKY;
+        String action = intent == null ? null : intent.getAction();
+        if (ACTION_STOP.equals(action)) { prefs(this).edit().putBoolean(KEY_ENABLED, false).apply(); stopSelf(); return START_NOT_STICKY; }
+        if (ACTION_PAUSE.equals(action)) { pause(); return START_STICKY; }
+        if (ACTION_RESUME.equals(action)) { prefs(this).edit().putLong(KEY_PAUSED_UNTIL, 0).apply(); mode = Mode.WAITING; }
+        if (ACTION_LISTEN_NOW.equals(action)) {
+            commandOnly = !isEnabled(this);
+            if (mode != Mode.RESPONDING) onWake(-1f);
+            return START_NOT_STICKY;
+        }
+        if (!isEnabled(this)) { stopSelf(); return START_NOT_STICKY; }
+        long pausedUntil = prefs(this).getLong(KEY_PAUSED_UNTIL, 0);
+        if (pausedUntil > System.currentTimeMillis()) { pause(); return START_STICKY; }
+        if (mode != Mode.RESPONDING) startWaiting();
+        return START_STICKY;
+    }
+
+    // ---------- waiting for "Hey Jarvis" ----------
+
+    private void startWaiting() {
+        if (stopping) return;
+        if (!isEnabled(this)) { stopSelf(); return; }
+        mode = Mode.WAITING;
+        state = "Listening for \"Hey Jarvis\"";
+        updateNotification("Say \"Hey Jarvis\". Audio stays on this phone.", false);
+        if (audioThread != null && audioThread.isAlive()) return;
+        audioThread = new Thread(this::audioLoop, "jarvis-wake");
+        audioThread.setPriority(Thread.NORM_PRIORITY - 1);
+        audioThread.start();
+    }
+
+    private void audioLoop() {
+        try {
+            if (engine == null) engine = new WakeWordEngine(asset("wakeword/melspectrogram.onnx"), asset("wakeword/embedding_model.onnx"), asset("wakeword/hey_jarvis_v0.1.onnx"));
+            else engine.reset();
+        } catch (Throwable t) {
+            fail("Wake word engine could not start: " + t.getClass().getSimpleName());
+            return;
+        }
+        int min = AudioRecord.getMinBufferSize(16000, AudioFormat.CHANNEL_IN_MONO, AudioFormat.ENCODING_PCM_16BIT);
+        AudioRecord rec;
+        try {
+            rec = new AudioRecord(MediaRecorder.AudioSource.VOICE_RECOGNITION, 16000, AudioFormat.CHANNEL_IN_MONO, AudioFormat.ENCODING_PCM_16BIT, Math.max(min, WakeWordEngine.CHUNK * 2 * 4));
+        } catch (SecurityException e) { fail("Microphone permission is missing"); return; }
+        if (rec.getState() != AudioRecord.STATE_INITIALIZED) { rec.release(); retryLater("Microphone is busy. Trying again."); return; }
+        float threshold = prefs(this).getFloat(KEY_THRESHOLD, DEFAULT_THRESHOLD);
+        short[] chunk = new short[WakeWordEngine.CHUNK];
+        long cpuNanos = 0, chunks = 0;
+        AudioManager am = (AudioManager) getSystemService(AUDIO_SERVICE);
+        try {
+            rec.startRecording();
+            while (!stopping && mode == Mode.WAITING) {
+                int n = rec.read(chunk, 0, chunk.length, AudioRecord.READ_BLOCKING);
+                if (n < 0) { retryLater("Microphone stopped (" + n + "). Trying again."); return; }
+                if (n != chunk.length) continue;
+                long t0 = SystemClock.elapsedRealtimeNanos();
+                float score = engine.process(chunk);
+                cpuNanos += SystemClock.elapsedRealtimeNanos() - t0;
+                if (++chunks % 750 == 0) prefs(this).edit().putFloat(KEY_CPU, cpuNanos / 1e6f / chunks).apply(); // about once a minute
+                if (score >= threshold && !inCall(am)) {
+                    final float s = score;
+                    mode = Mode.RESPONDING;
+                    main.post(() -> onWake(s));
+                }
+            }
+        } catch (Throwable t) {
+            Log.w(TAG, "audio loop", t);
+            retryLater("Listening error. Trying again.");
+        } finally {
+            try { rec.stop(); } catch (Exception ignored) { }
+            rec.release();
+        }
+    }
+
+    private int retries;
+    private void retryLater(String why) {
+        main.post(() -> {
+            if (stopping) return;
+            if (++retries > 5) { fail(why + " Gave up after 5 tries."); return; }
+            updateNotification(why, false);
+            main.postDelayed(this::startWaiting, 5000L * retries);
+        });
+    }
+
+    private void fail(String why) {
+        prefs(this).edit().putString(KEY_ERROR, why).apply();
+        main.post(() -> { state = "Stopped: " + why; stopSelf(); });
+    }
+
+    private static boolean inCall(AudioManager am) {
+        if (am == null) return false;
+        int m = am.getMode();
+        return m == AudioManager.MODE_IN_CALL || m == AudioManager.MODE_IN_COMMUNICATION || m == AudioManager.MODE_RINGTONE;
+    }
+
+    private void pause() {
+        long until = System.currentTimeMillis() + PAUSE_MS;
+        prefs(this).edit().putLong(KEY_PAUSED_UNTIL, until).apply();
+        mode = Mode.PAUSED;
+        state = "Paused until " + DateFormat.getTimeInstance(DateFormat.SHORT).format(new Date(until));
+        updateNotification(state + ". The microphone is off.", true);
+        main.removeCallbacks(resumeAfterPause);
+        main.postDelayed(resumeAfterPause, PAUSE_MS);
+    }
+
+    private final Runnable resumeAfterPause = () -> { prefs(this).edit().putLong(KEY_PAUSED_UNTIL, 0).apply(); startWaiting(); };
+
+    // ---------- after "Hey Jarvis" ----------
+
+    private final Runnable watchdog = () -> { Log.w(TAG, "response watchdog"); endInteraction(); };
+
+    /** score < 0 means started by the assist gesture, not the wake word. */
+    private void onWake(float score) {
+        mode = Mode.RESPONDING;
+        state = "Listening to your command";
+        retries = 0;
+        if (score >= 0) prefs(this).edit().putLong(KEY_LAST_WAKE, System.currentTimeMillis()).putFloat(KEY_LAST_SCORE, score).apply();
+        updateNotification("Listening to your command…", false);
+        main.removeCallbacks(watchdog);
+        main.postDelayed(watchdog, RESPONSE_WATCHDOG_MS);
+        // Give the audio thread time to release the microphone before the recognizer needs it.
+        say("Yes Boss?", this::listenForCommand);
+    }
+
+    private void listenForCommand() {
+        try {
+            ComponentName delegate = JarvisRecognitionService.findDelegate(this);
+            recognizer = delegate != null ? SpeechRecognizer.createSpeechRecognizer(this, delegate) : SpeechRecognizer.createSpeechRecognizer(this);
+        } catch (Exception e) { say("Sorry Boss, speech recognition is not available.", this::endInteraction); return; }
+        recognizer.setRecognitionListener(new RecognitionListener() {
+            @Override public void onResults(Bundle b) {
+                ArrayList<String> r = b == null ? null : b.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION);
+                releaseRecognizer();
+                handleCommand(r == null || r.isEmpty() ? "" : r.get(0));
+            }
+            @Override public void onError(int e) {
+                releaseRecognizer();
+                String msg = e == SpeechRecognizer.ERROR_NETWORK || e == SpeechRecognizer.ERROR_NETWORK_TIMEOUT || e == SpeechRecognizer.ERROR_SERVER
+                        ? "Boss, internet is unavailable. I can still perform offline actions once speech works offline."
+                        : e == SpeechRecognizer.ERROR_NO_MATCH || e == SpeechRecognizer.ERROR_SPEECH_TIMEOUT ? "Sorry Boss, I didn't catch that." : "Sorry Boss, I couldn't listen just now.";
+                say(msg, WakeWordService.this::endInteraction);
+            }
+            @Override public void onReadyForSpeech(Bundle b) { }
+            @Override public void onBeginningOfSpeech() { }
+            @Override public void onRmsChanged(float v) { }
+            @Override public void onBufferReceived(byte[] b) { }
+            @Override public void onEndOfSpeech() { }
+            @Override public void onPartialResults(Bundle b) { }
+            @Override public void onEvent(int t, Bundle b) { }
+        });
         Intent i = new Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH);
         i.putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM);
         i.putExtra(RecognizerIntent.EXTRA_LANGUAGE, "en-IN");
-        i.putExtra(RecognizerIntent.EXTRA_LANGUAGE_PREFERENCE, "en-IN");
-        i.putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, true);
-        i.putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_COMPLETE_SILENCE_LENGTH_MILLIS, 850L);
-        i.putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_POSSIBLY_COMPLETE_SILENCE_LENGTH_MILLIS, 650L);
-        i.putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_MINIMUM_LENGTH_MILLIS, 250L);
-        if (Build.VERSION.SDK_INT >= 31) i.putExtra(RecognizerIntent.EXTRA_PREFER_OFFLINE, true);
-        return i;
+        i.putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 3);
+        i.putExtra(RecognizerIntent.EXTRA_CALLING_PACKAGE, getPackageName());
+        try { recognizer.startListening(i); }
+        catch (Exception e) { releaseRecognizer(); say("Sorry Boss, I couldn't listen just now.", this::endInteraction); return; }
+        main.postDelayed(commandTimeout, COMMAND_TIMEOUT_MS);
     }
-    private void scheduleRestart(long delayMs) {
-        if (stopping || recognizer == null) return;
-        handler.removeCallbacks(startRunnable); handler.postDelayed(startRunnable, delayMs);
-    }
-    private void startRecognition() {
-        if (stopping || recognizer == null || listening) return;
-        try { session++; handledSession = -1L; lastCallbackText = ""; listening = true; recognizer.startListening(speechIntent()); }
-        catch (Exception ignored) { listening = false; scheduleRestart(RETRY_DELAY_MS); }
-    }
-    private String text(Bundle b) {
-        ArrayList<String> list = b == null ? null : b.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION);
-        return list == null || list.isEmpty() || list.get(0) == null ? "" : list.get(0).trim();
-    }
-    private void handlePartial(Bundle b) {
-        if (mode != Mode.WAKE || handledSession == session) return;
-        String value = text(b); if (value.isEmpty()) return;
-        Matcher m = WAKE.matcher(value);
-        if (m.matches()) { handledSession = session; listening = false; try { recognizer.cancel(); } catch (Exception ignored) { }
-            onWake(m.group(1) == null ? "" : m.group(1).trim()); scheduleRestart(RESTART_DELAY_MS); }
-    }
-    private void handle(Bundle b) {
-        listening = false; if (handledSession == session) { scheduleRestart(RESTART_DELAY_MS); return; }
-        String value = text(b); long now = android.os.SystemClock.elapsedRealtime();
-        if (value.equalsIgnoreCase(lastCallbackText) && now - lastCallbackAt < DUPLICATE_CALLBACK_WINDOW_MS) { scheduleRestart(RESTART_DELAY_MS); return; }
-        lastCallbackText = value; lastCallbackAt = now; handledSession = session;
-        if (mode == Mode.WAKE) { Matcher m = WAKE.matcher(value); if (m.matches()) onWake(m.group(1) == null ? "" : m.group(1).trim()); }
-        else { mode = Mode.WAKE; if (!value.isEmpty()) { if (isStop(value)) stopWithSpeech(); else emit(value); } }
-        scheduleRestart(RESTART_DELAY_MS);
-    }
-    private void onWake(String command) {
-        speak(ACK); mode = Mode.WAKE;
-        if (command != null && !command.isEmpty()) { if (isStop(command)) stopWithSpeech(); else emit(command); }
-        else mode = Mode.COMMAND;
-    }
-    private boolean isStop(String value) { return STOP.matcher(value.trim()).matches() || value.trim().equalsIgnoreCase("stop kalki"); }
-    private void emit(String command) {
-        if (command == null || command.trim().isEmpty()) return;
-        mode = Mode.WAKE; sendBroadcast(new Intent(ACTION_COMMAND).setPackage(getPackageName()).putExtra(EXTRA_COMMAND, command.trim()));
-    }
-    private void speak(String value) { if (ttsReady && tts != null) tts.speak(value, TextToSpeech.QUEUE_FLUSH, null, "kalki-ack"); else pendingSpeech = value; }
-    private void stopWithSpeech() { speak("ఆపుతున్నాను Boss"); stopping = true; handler.removeCallbacksAndMessages(null); stopSelf(); }
 
-    private Notification notification() {
-        Intent stop = new Intent(this, WakeWordService.class).setAction(ACTION_STOP);
-        PendingIntent pi = PendingIntent.getService(this, 1, stop, PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
+    private final Runnable commandTimeout = () -> { if (recognizer != null) { releaseRecognizer(); endInteraction(); } };
+
+    private void releaseRecognizer() {
+        main.removeCallbacks(commandTimeout);
+        SpeechRecognizer r = recognizer; recognizer = null;
+        if (r != null) { try { r.cancel(); } catch (Exception ignored) { } try { r.destroy(); } catch (Exception ignored) { } }
+    }
+
+    private void handleCommand(String text) {
+        prefs(this).edit().putString(KEY_LAST_COMMAND, text).apply();
+        VoiceCommand c = VoiceCommand.parse(text);
+        switch (c.type) {
+            case OPEN_APP: {
+                AppMatcher.App app = AppMatcher.match(c.target, launcherApps());
+                if (app == null) { say("Boss, that application is not installed.", this::endInteraction); return; }
+                Intent launch = getPackageManager().getLaunchIntentForPackage(app.packageName);
+                if (launch == null) { say("Boss, " + app.label + " cannot be opened.", this::endInteraction); return; }
+                say("Opening " + app.label + ".", () -> { AppOpener.open(this, launch); endInteraction(); });
+                return;
+            }
+            case STOP_LISTENING:
+                prefs(this).edit().putBoolean(KEY_ENABLED, false).apply();
+                say("Okay Boss. I have stopped listening.", this::stopSelf);
+                return;
+            case CANCEL:
+                say("Okay Boss.", this::endInteraction);
+                return;
+            default:
+                say(text.isEmpty() ? "Sorry Boss, I didn't catch that." : "Boss, for now I can open apps. More commands are coming soon.", this::endInteraction);
+        }
+    }
+
+    /** Apps with an icon in the app drawer. */
+    private List<AppMatcher.App> launcherApps() {
+        PackageManager pm = getPackageManager();
+        Intent i = new Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER);
+        List<AppMatcher.App> apps = new ArrayList<>();
+        for (ResolveInfo r : pm.queryIntentActivities(i, 0)) {
+            if (r.activityInfo == null || !r.activityInfo.enabled) continue;
+            CharSequence label = r.loadLabel(pm);
+            if (label != null) apps.add(new AppMatcher.App(label.toString(), r.activityInfo.packageName));
+        }
+        return apps;
+    }
+
+    private void endInteraction() {
+        main.removeCallbacks(watchdog);
+        releaseRecognizer();
+        afterSpeech = null;
+        if (commandOnly && !isEnabled(this)) { stopSelf(); return; }
+        commandOnly = false;
+        startWaiting();
+    }
+
+    // ---------- speaking ----------
+
+    private void say(String text, Runnable then) {
+        afterSpeech = then;
+        if (!ttsReady || tts == null) { main.post(this::speechFinished); return; }
+        Bundle p = new Bundle();
+        tts.speak(text, TextToSpeech.QUEUE_FLUSH, p, "jarvis-" + SystemClock.elapsedRealtime());
+    }
+
+    private void speechFinished() {
+        Runnable r = afterSpeech; afterSpeech = null;
+        if (r != null) r.run();
+    }
+
+    // ---------- notification ----------
+
+    private Notification notification(String text, boolean paused) {
+        PendingIntent open = PendingIntent.getActivity(this, 0, new Intent(this, AssistantSetupActivity.class), PendingIntent.FLAG_IMMUTABLE | PendingIntent.FLAG_UPDATE_CURRENT);
+        PendingIntent stop = PendingIntent.getService(this, 1, new Intent(this, WakeWordService.class).setAction(ACTION_STOP), PendingIntent.FLAG_IMMUTABLE | PendingIntent.FLAG_UPDATE_CURRENT);
+        PendingIntent toggle = PendingIntent.getService(this, 2, new Intent(this, WakeWordService.class).setAction(paused ? ACTION_RESUME : ACTION_PAUSE), PendingIntent.FLAG_IMMUTABLE | PendingIntent.FLAG_UPDATE_CURRENT);
         return new Notification.Builder(this, CHANNEL).setSmallIcon(R.drawable.kalki_logo)
-                .setContentTitle("KALKI wake word active")
-                .setContentText("Listening in foreground · say “Hey KALKI” or “Hey Jarvis”")
-                .setOngoing(true).setCategory(Notification.CATEGORY_SERVICE)
-                .addAction(new Notification.Action.Builder(null, "Stop KALKI", pi).build()).build();
+                .setContentTitle(paused ? "Jarvis is paused" : "Jarvis is on")
+                .setContentText(text)
+                .setContentIntent(open)
+                .setOngoing(true).setCategory(Notification.CATEGORY_SERVICE).setOnlyAlertOnce(true)
+                .addAction(new Notification.Action.Builder(null, paused ? "Resume" : "Pause 30 min", toggle).build())
+                .addAction(new Notification.Action.Builder(null, "Stop", stop).build()).build();
     }
-    private void createChannel() { ((NotificationManager)getSystemService(NOTIFICATION_SERVICE)).createNotificationChannel(new NotificationChannel(CHANNEL, "KALKI microphone", NotificationManager.IMPORTANCE_LOW)); }
-    @Override public int onStartCommand(Intent intent, int flags, int id) {
-        if (ACTION_STOP.equals(intent == null ? null : intent.getAction())) { stopping = true; handler.removeCallbacksAndMessages(null); stopSelf(); }
-        return START_STICKY;
+
+    private void updateNotification(String text, boolean paused) {
+        NotificationManager nm = (NotificationManager) getSystemService(NOTIFICATION_SERVICE);
+        if (nm != null && running) nm.notify(NOTIFICATION_ID, notification(text, paused));
     }
+
+    private void createChannel() {
+        NotificationManager nm = (NotificationManager) getSystemService(NOTIFICATION_SERVICE);
+        if (nm != null) nm.createNotificationChannel(new NotificationChannel(CHANNEL, "Jarvis microphone", NotificationManager.IMPORTANCE_LOW));
+    }
+
+    // ---------- helpers ----------
+
+    private byte[] asset(String name) throws java.io.IOException {
+        try (InputStream in = getAssets().open(name); ByteArrayOutputStream out = new ByteArrayOutputStream()) {
+            byte[] b = new byte[65536]; int n;
+            while ((n = in.read(b)) > 0) out.write(b, 0, n);
+            return out.toByteArray();
+        }
+    }
+
+    int batteryPercent() {
+        BatteryManager bm = (BatteryManager) getSystemService(BATTERY_SERVICE);
+        return bm == null ? -1 : bm.getIntProperty(BatteryManager.BATTERY_PROPERTY_CAPACITY);
+    }
+
     @Override public void onDestroy() {
+        stopping = true;
         running = false;
-        stopping = true; handler.removeCallbacksAndMessages(null);
-        if (recognizer != null) { try { recognizer.cancel(); } catch (Exception ignored) { } recognizer.destroy(); }
-        if (tts != null) { tts.stop(); tts.shutdown(); } super.onDestroy();
+        state = "Off";
+        mode = Mode.WAITING;
+        main.removeCallbacksAndMessages(null);
+        releaseRecognizer();
+        Thread t = audioThread; audioThread = null;
+        if (t != null) { try { t.join(1500); } catch (InterruptedException ignored) { } }
+        if (engine != null) { engine.close(); engine = null; }
+        if (tts != null) { tts.stop(); tts.shutdown(); tts = null; }
+        super.onDestroy();
     }
+
     @Override public IBinder onBind(Intent intent) { return null; }
 }

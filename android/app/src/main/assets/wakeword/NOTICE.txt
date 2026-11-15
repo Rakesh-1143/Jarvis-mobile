@@ -1,0 +1,10 @@
+Wake word models from openWakeWord v0.5.1 (https://github.com/dscripka/openWakeWord)
+by David Scripka.
+
+- melspectrogram.onnx, embedding_model.onnx, hey_jarvis_v0.1.onnx
+- Licence: Creative Commons Attribution-NonCommercial-ShareAlike 4.0
+  (https://creativecommons.org/licenses/by-nc-sa/4.0/). Personal, non-commercial use only.
+- Unchanged from the v0.5.1 release files.
+
+The Java code that runs them (WakeWordEngine.java) is a port of openWakeWord's
+Apache-2.0 streaming code.

@@ -101,11 +101,42 @@ public final class AssistantSetupActivity extends Activity {
         button("Choose KALKI as default assistant", v -> openAssistantSettings());
         note("Android shows its own page. Tap \"Digital assistant app\" (or \"Default digital assistant app\") and pick KALKI. You can change it back any time.");
 
+        section("Hey Jarvis");
+        SharedPreferences sp = WakeWordService.prefs(this);
+        boolean on = WakeWordService.isEnabled(this);
+        row("Always-on listening", on ? (WakeWordService.running ? WakeWordService.state : "On, but not running") : "Off", on ? (Boolean) WakeWordService.running : null);
+        button(on ? "Turn off Hey Jarvis" : "Turn on Hey Jarvis", v -> toggleWake());
+        note("When on, the phone checks for \"Hey Jarvis\" on the phone itself. That audio is never saved or sent. After you say it, your command goes to the phone's speech recognizer (Google app).");
+        float threshold = sp.getFloat(WakeWordService.KEY_THRESHOLD, 0.5f);
+        row("Sensitivity", threshold <= 0.36f ? "High (wakes more easily)" : threshold >= 0.64f ? "Low (fewer false wakes)" : "Normal", null);
+        button("Change sensitivity", v -> {
+            float t = sp.getFloat(WakeWordService.KEY_THRESHOLD, 0.5f);
+            float next = t <= 0.36f ? 0.65f : t >= 0.64f ? 0.5f : 0.35f;
+            sp.edit().putFloat(WakeWordService.KEY_THRESHOLD, next).apply();
+            if (WakeWordService.running) WakeWordService.start(this, WakeWordService.ACTION_RESUME);
+            render();
+        });
+        long lastWake = sp.getLong(WakeWordService.KEY_LAST_WAKE, 0);
+        row("Last \"Hey Jarvis\" heard", lastWake == 0 ? "Not yet" : time(lastWake) + String.format(Locale.US, " · score %.2f", sp.getFloat(WakeWordService.KEY_LAST_SCORE, 0)), null);
+        String lastCmd = sp.getString(WakeWordService.KEY_LAST_COMMAND, null);
+        row("Last command heard", lastCmd == null ? "None yet" : lastCmd.isEmpty() ? "(nothing understood)" : lastCmd, null);
+        float cpu = sp.getFloat(WakeWordService.KEY_CPU, 0);
+        if (cpu > 0) row("Wake word work per 80 ms of audio", String.format(Locale.US, "%.1f ms (%.0f%% of one CPU core)", cpu, cpu / 80f * 100f), null);
+        long started = sp.getLong(WakeWordService.KEY_STARTED_AT, 0);
+        int startBattery = sp.getInt(WakeWordService.KEY_START_BATTERY, -1);
+        if (WakeWordService.running && started > 0 && startBattery >= 0) {
+            double hours = (System.currentTimeMillis() - started) / 3600000.0;
+            row("Battery since listening started", String.format(Locale.US, "%d%% → %d%% in %.1f h (all phone use, not only Jarvis)", startBattery, batteryNow(), hours), null);
+        }
+        String err = sp.getString(WakeWordService.KEY_ERROR, null);
+        if (err != null) row("Last problem", err, Boolean.FALSE);
+
         section("Microphone and background");
         boolean mic = checkSelfPermission(Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED;
         row("Microphone permission", mic ? "Allowed" : "Not allowed", mic);
         if (!mic) button("Allow microphone", v -> requestPermissions(new String[]{Manifest.permission.RECORD_AUDIO}, MIC_REQUEST));
         row("Background listening service", WakeWordService.running ? "Running" : "Not running", null);
+        row("Open apps from background", JarvisVoiceInteractionService.instance != null ? "Ready (through the assistant)" : "Needs KALKI as default assistant", JarvisVoiceInteractionService.instance != null);
         PowerManager pm = (PowerManager) getSystemService(POWER_SERVICE);
         boolean unrestricted = pm != null && pm.isIgnoringBatteryOptimizations(getPackageName());
         boolean restricted = false;
@@ -134,6 +165,21 @@ public final class AssistantSetupActivity extends Activity {
         button("Copy report", v -> copyReport());
         note("Paste the report in the KALKI project chat so Claude can see your phone's real results.");
         button("Refresh", v -> render());
+    }
+
+    private void toggleWake() {
+        boolean on = !WakeWordService.isEnabled(this);
+        if (on && checkSelfPermission(Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
+            requestPermissions(new String[]{Manifest.permission.RECORD_AUDIO}, MIC_REQUEST);
+            return;
+        }
+        WakeWordService.setEnabled(this, on);
+        list.postDelayed(this::render, 800);
+    }
+
+    private int batteryNow() {
+        android.os.BatteryManager bm = (android.os.BatteryManager) getSystemService(BATTERY_SERVICE);
+        return bm == null ? -1 : bm.getIntProperty(android.os.BatteryManager.BATTERY_PROPERTY_CAPACITY);
     }
 
     private boolean assistantServiceDeclared() {
