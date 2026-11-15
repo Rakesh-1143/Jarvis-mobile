@@ -20,7 +20,49 @@ public class VoiceCommandTest {
             new AppMatcher.App("Settings", "com.android.settings"),
             new AppMatcher.App("Gmail", "com.google.android.gm"),
             new AppMatcher.App("Instagram", "com.instagram.android"),
-            new AppMatcher.App("Camera", "com.motorola.camera3"));
+            new AppMatcher.App("Camera", "com.motorola.camera3"),
+            new AppMatcher.App("Claude", "com.anthropic.claude"),
+            new AppMatcher.App("Clock", "com.google.android.deskclock"));
+
+    private static final List<AppMatcher.App> PEOPLE = Arrays.asList(
+            new AppMatcher.App("Ravi", "919000000001"),
+            new AppMatcher.App("Ravi Teja College", "919000000002"),
+            new AppMatcher.App("Amma", "919000000003"),
+            new AppMatcher.App("Kiran Kumar", "919000000004"));
+
+    private static VoiceCommand send(String said, String who, String what) {
+        VoiceCommand c = VoiceCommand.parse(said);
+        assertEquals(said, VoiceCommand.Type.SEND_MESSAGE, c.type);
+        assertEquals(said, who, c.target);
+        assertEquals(said, what, c.message);
+        return c;
+    }
+
+    @Test public void opensClaudeEvenWhenHeardAsCloud() {
+        assertEquals("com.anthropic.claude", open("open claude"));
+        assertEquals("com.anthropic.claude", open("open cloud"));
+        assertEquals("com.anthropic.claude", open("open claud app"));
+        assertEquals("com.google.android.deskclock", open("open clock"));
+    }
+
+    @Test public void parsesSendMessage() {
+        send("send message to ravie by saying hi", "ravie", "hi");
+        send("Send a message to Ravi saying I will be late.", "ravi", "i will be late");
+        send("send whatsapp message to amma that I reached home", "amma", "i reached home");
+        send("message Kiran saying call me", "kiran", "call me");
+        send("tell amma that I am coming", "amma", "i am coming");
+        send("send hi to ravi on whatsapp", "ravi", "hi");
+        send("send message to ravi", "ravi", "");
+        assertEquals(VoiceCommand.Type.OPEN_APP, VoiceCommand.parse("open messages").type);
+    }
+
+    @Test public void findsContactsFromHeardNames() {
+        assertEquals("919000000001", AppMatcher.matchName("ravie", PEOPLE).packageName);
+        assertEquals("919000000001", AppMatcher.matchName("Ravi", PEOPLE).packageName);
+        assertEquals("919000000003", AppMatcher.matchName("amma", PEOPLE).packageName);
+        assertEquals("919000000004", AppMatcher.matchName("kiran", PEOPLE).packageName);
+        assertNull(AppMatcher.matchName("suresh", PEOPLE));
+    }
 
     private static String open(String said) {
         VoiceCommand c = VoiceCommand.parse(said);

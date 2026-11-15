@@ -60,7 +60,7 @@ public final class WakeWordService extends Service {
 
     static final String PREFS = "jarvis_settings";
     static final String KEY_ENABLED = "wake_enabled", KEY_PAUSED_UNTIL = "paused_until", KEY_THRESHOLD = "wake_threshold";
-    static final String KEY_LAST_WAKE = "last_wake_at", KEY_LAST_SCORE = "last_wake_score", KEY_LAST_COMMAND = "last_command";
+    static final String KEY_LAST_WAKE = "last_wake_at", KEY_LAST_SCORE = "last_wake_score", KEY_LAST_COMMAND = "last_command", KEY_COMMAND_LOG = "command_log";
     static final String KEY_PHRASE = "wake_phrase", KEY_TRAINED_AT = "voice_trained_at";
     static final String KEY_STARTED_AT = "listening_started_at", KEY_START_BATTERY = "listening_start_battery", KEY_CPU = "wake_cpu_ms", KEY_ERROR = "last_error";
     private static final String CHANNEL = "jarvis_wake_word";
@@ -306,7 +306,7 @@ public final class WakeWordService extends Service {
             @Override public void onResults(Bundle b) {
                 ArrayList<String> r = b == null ? null : b.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION);
                 releaseRecognizer();
-                handleCommand(r == null || r.isEmpty() ? "" : r.get(0));
+                handleCommand(r == null ? new ArrayList<>() : r);
             }
             @Override public void onError(int e) {
                 releaseRecognizer();
@@ -341,28 +341,83 @@ public final class WakeWordService extends Service {
         if (r != null) { try { r.cancel(); } catch (Exception ignored) { } try { r.destroy(); } catch (Exception ignored) { } }
     }
 
-    private void handleCommand(String text) {
-        prefs(this).edit().putString(KEY_LAST_COMMAND, text).apply();
+    /** The recognizer gives up to 3 guesses of what was said; use the first one that makes sense. */
+    private void handleCommand(List<String> guesses) {
+        String text = guesses.isEmpty() || guesses.get(0) == null ? "" : guesses.get(0);
         VoiceCommand c = VoiceCommand.parse(text);
+        List<AppMatcher.App> apps = null;
+        if (c.type == VoiceCommand.Type.OPEN_APP || c.type == VoiceCommand.Type.UNKNOWN) {
+            apps = launcherApps();
+            for (String g : guesses) {
+                VoiceCommand gc = VoiceCommand.parse(g);
+                if (gc.type == VoiceCommand.Type.OPEN_APP && AppMatcher.match(gc.target, apps) != null) { c = gc; text = g; break; }
+                if (c.type == VoiceCommand.Type.UNKNOWN && gc.type != VoiceCommand.Type.UNKNOWN) { c = gc; text = g; }
+            }
+        }
+        final String heard = text;
         switch (c.type) {
             case OPEN_APP: {
-                AppMatcher.App app = AppMatcher.match(c.target, launcherApps());
-                if (app == null) { say("Boss, that application is not installed.", this::endInteraction); return; }
+                AppMatcher.App app = AppMatcher.match(c.target, apps);
+                if (app == null) { remember(heard, "app not found: " + c.target); say("Boss, I could not find " + c.target + ". That application is not installed.", this::endInteraction); return; }
                 Intent launch = getPackageManager().getLaunchIntentForPackage(app.packageName);
-                if (launch == null) { say("Boss, " + app.label + " cannot be opened.", this::endInteraction); return; }
+                if (launch == null) { remember(heard, app.label + " cannot be opened"); say("Boss, " + app.label + " cannot be opened.", this::endInteraction); return; }
+                remember(heard, "opened " + app.label);
                 say("Opening " + app.label + ".", () -> { AppOpener.open(this, launch); endInteraction(); });
                 return;
             }
+            case SEND_MESSAGE:
+                sendMessage(heard, c, guesses);
+                return;
             case STOP_LISTENING:
+                remember(heard, "stopped listening");
                 prefs(this).edit().putBoolean(KEY_ENABLED, false).apply();
                 say("Okay Boss. I have stopped listening.", this::stopSelf);
                 return;
             case CANCEL:
+                remember(heard, "cancelled");
                 say("Okay Boss.", this::endInteraction);
                 return;
             default:
-                say(text.isEmpty() ? "Sorry Boss, I didn't catch that." : "Boss, for now I can open apps. More commands are coming soon.", this::endInteraction);
+                remember(heard, heard.isEmpty() ? "nothing understood" : "not a known command");
+                say(heard.isEmpty() ? "Sorry Boss, I didn't catch that." : "Boss, for now I can open apps and send WhatsApp messages. More commands are coming soon.", this::endInteraction);
         }
+    }
+
+    /** Opens the WhatsApp chat of a contact with the message typed in. Never presses Send. */
+    private void sendMessage(String heard, VoiceCommand c, List<String> guesses) {
+        String pkg = Contacts.whatsappPackage(this);
+        if (pkg == null) { remember(heard, "WhatsApp not installed"); say("Boss, WhatsApp is not installed.", this::endInteraction); return; }
+        if (!Contacts.allowed(this)) {
+            remember(heard, "contacts permission needed");
+            say("Boss, please allow contacts in Jarvis setup, then ask me again.", this::endInteraction);
+            return;
+        }
+        List<AppMatcher.App> people = Contacts.withNumbers(this);
+        AppMatcher.App who = AppMatcher.matchName(c.target, people);
+        VoiceCommand used = c;
+        // Another guess of the recognizer may have the name right.
+        for (int i = 0; who == null && i < guesses.size(); i++) {
+            VoiceCommand gc = VoiceCommand.parse(guesses.get(i));
+            if (gc.type == VoiceCommand.Type.SEND_MESSAGE) { who = AppMatcher.matchName(gc.target, people); if (who != null) used = gc; }
+        }
+        if (who == null) { remember(heard, "contact not found: " + c.target); say("Boss, I couldn't find " + c.target + " in your contacts.", this::endInteraction); return; }
+        AppMatcher.App person = who;
+        String text = used.message.isEmpty() ? c.message : used.message;
+        remember(heard, "WhatsApp chat with " + person.label + (text.isEmpty() ? "" : ", typed: " + text));
+        say("Opening WhatsApp chat with " + person.label + ". Please tap send, Boss.",
+                () -> { AppOpener.open(this, Contacts.whatsappChat(pkg, person.packageName, text)); endInteraction(); });
+    }
+
+    /** Keeps the last 5 commands and what Jarvis did, for the setup report. Words only, never audio. */
+    private void remember(String heard, String result) {
+        SharedPreferences p = prefs(this);
+        String line = new java.text.SimpleDateFormat("HH:mm", java.util.Locale.ROOT).format(new java.util.Date())
+                + " \"" + (heard.isEmpty() ? "(nothing)" : heard) + "\" -> " + result;
+        String old = p.getString(KEY_COMMAND_LOG, "");
+        String[] lines = old.isEmpty() ? new String[0] : old.split("\n");
+        StringBuilder b = new StringBuilder(line);
+        for (int i = 0; i < Math.min(4, lines.length); i++) b.append('\n').append(lines[i]);
+        p.edit().putString(KEY_LAST_COMMAND, heard).putString(KEY_COMMAND_LOG, b.toString()).apply();
     }
 
     /** Apps with an icon in the app drawer. */

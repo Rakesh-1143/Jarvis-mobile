@@ -34,6 +34,8 @@ public final class AppMatcher {
         alias("facebook", "facebook", "fb");
         alias("clock", "clock", "alarm", "alarms");
         alias("files", "files", "file manager", "files by google");
+        alias("claude", "claude", "cloud", "claud", "clawed", "cloude", "clod", "claude ai", "cloud ai");
+        alias("chatgpt", "chatgpt", "chat gpt", "chat gbt", "chat gpd");
     }
     private static void alias(String target, String... spoken) { for (String s : spoken) ALIASES.put(norm(s), new String[]{target}); }
 
@@ -56,6 +58,12 @@ public final class AppMatcher {
         return alias == null ? null : find(alias[0], apps);
     }
 
+    /** Best match for a person's name (no app aliases), or null. */
+    public static App matchName(String spoken, List<App> people) {
+        String q = norm(spoken).replaceFirst("^(the|my)\\s+", "");
+        return q.isEmpty() ? null : find(q, people);
+    }
+
     private static App find(String q, List<App> apps) {
         String cq = compact(q);
         App best = null; int bestScore = 0;
@@ -65,11 +73,41 @@ public final class AppMatcher {
             if (cl.equals(cq)) score = 100;
             else if (l.startsWith(q + " ") || cl.startsWith(cq) && cq.length() >= 4) score = 80;
             else if ((" " + l + " ").contains(" " + q + " ")) score = 70;
-            else score = similarity(cq, cl) >= 0.8 ? 60 : 0;
+            else if (similarity(cq, cl) >= 0.8) score = 60;
+            else score = soundsAlike(q, l) ? 50 : 0;
             // Prefer shorter labels on ties ("Maps" over "Maps Go").
             if (score > bestScore || score == bestScore && score > 0 && best != null && a.label.length() < best.label.length()) { best = a; bestScore = score; }
         }
         return bestScore > 0 ? best : null;
+    }
+
+    /**
+     * Speech engines often write a name as a similar-sounding word ("cloud" for Claude,
+     * "ravie" for Ravi). Compares the consonant sound of the words; the first word, or all words.
+     */
+    static boolean soundsAlike(String q, String label) {
+        String a = sound(q.replace(" ", ""));
+        if (a.length() < 3) return false;
+        if (a.equals(sound(label.replace(" ", "")))) return true;
+        String first = label.split(" ")[0];
+        return !first.equals(label) && a.equals(sound(first));
+    }
+
+    /** Rough sound key: first letter, then consonants, with similar sounds merged. */
+    static String sound(String w) {
+        if (w.isEmpty()) return "";
+        w = w.replace("ph", "f").replace("ck", "k").replace("sh", "s").replace("th", "t").replace("gh", "g");
+        StringBuilder b = new StringBuilder();
+        char prev = 0;
+        for (int i = 0; i < w.length(); i++) {
+            char c = w.charAt(i);
+            switch (c) { case 'c': case 'q': c = 'k'; break; case 'z': c = 's'; break; case 'v': c = 'w'; break; case 'j': c = 'g'; break; default: }
+            boolean vowel = "aeiouyh".indexOf(c) >= 0;
+            if (i > 0 && vowel) { prev = 0; continue; }
+            if (c != prev) b.append(c);
+            prev = c;
+        }
+        return b.toString();
     }
 
     /** 1 - edit distance / longer length. */

@@ -38,7 +38,7 @@ import java.util.Locale;
  * it never changes a system setting by itself.
  */
 public final class AssistantSetupActivity extends Activity {
-    private static final int MIC_REQUEST = 71;
+    private static final int MIC_REQUEST = 71, CONTACTS_REQUEST = 72;
     private static final int TEXT = 0xffe6f7ff, MUTED = 0xff8aa4b4, GOOD = 0xff4ade80, BAD = 0xfffbbf24, BG = 0xff02070d, CARD = 0xff0b1722;
 
     private LinearLayout list;
@@ -142,6 +142,8 @@ public final class AssistantSetupActivity extends Activity {
         row("Last \"Hey Jarvis\" heard", lastWake == 0 ? "Not yet" : time(lastWake) + String.format(Locale.US, " · score %.2f", sp.getFloat(WakeWordService.KEY_LAST_SCORE, 0)), null);
         String lastCmd = sp.getString(WakeWordService.KEY_LAST_COMMAND, null);
         row("Last command heard", lastCmd == null ? "None yet" : lastCmd.isEmpty() ? "(nothing understood)" : lastCmd, null);
+        String log = sp.getString(WakeWordService.KEY_COMMAND_LOG, null);
+        if (log != null && !log.isEmpty()) row("Recent commands", log, null);
         float cpu = sp.getFloat(WakeWordService.KEY_CPU, 0);
         if (cpu > 0) row("Wake word work per 80 ms of audio", String.format(Locale.US, "%.1f ms (%.0f%% of one CPU core)", cpu, cpu / 80f * 100f), null);
         long started = sp.getLong(WakeWordService.KEY_STARTED_AT, 0);
@@ -157,6 +159,9 @@ public final class AssistantSetupActivity extends Activity {
         boolean mic = checkSelfPermission(Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED;
         row("Microphone permission", mic ? "Allowed" : "Not allowed", mic);
         if (!mic) button("Allow microphone", v -> requestPermissions(new String[]{Manifest.permission.RECORD_AUDIO}, MIC_REQUEST));
+        boolean contacts = Contacts.allowed(this);
+        row("Contacts permission (for \"send message to …\")", contacts ? "Allowed · names are read on the phone only" : "Not allowed", contacts);
+        if (!contacts) button("Allow contacts", v -> requestPermissions(new String[]{Manifest.permission.READ_CONTACTS}, CONTACTS_REQUEST));
         row("Background listening service", WakeWordService.running ? "Running" : "Not running", null);
         row("Open apps from background", JarvisVoiceInteractionService.instance != null ? "Ready (through the assistant)" : "Needs KALKI as default assistant", JarvisVoiceInteractionService.instance != null);
         PowerManager pm = (PowerManager) getSystemService(POWER_SERVICE);

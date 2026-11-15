@@ -9,7 +9,8 @@ import android.widget.Toast;
 
 /**
  * Invisible step between Jarvis and the app it opens. If the phone is locked it asks Android
- * to show the unlock screen first; Jarvis never bypasses the lock. Only opens app launch intents.
+ * to show the unlock screen first; Jarvis never bypasses the lock. Only opens app launch intents
+ * and WhatsApp chat links (which only type the message; the user taps Send).
  */
 public final class LaunchActivity extends Activity {
     @Override protected void onCreate(Bundle state) {
@@ -27,9 +28,13 @@ public final class LaunchActivity extends Activity {
         } else go(target);
     }
 
-    /** Only a normal "open this app" intent is allowed. */
+    /** Only a normal "open this app" intent, or a WhatsApp chat link, is allowed. */
     static boolean isAppLaunch(Intent i) {
-        return i != null && Intent.ACTION_MAIN.equals(i.getAction()) && (i.getComponent() != null || i.getPackage() != null) && i.getData() == null;
+        if (i == null) return false;
+        if (Intent.ACTION_VIEW.equals(i.getAction()) && i.getData() != null && i.getComponent() == null)
+            return "https".equals(i.getData().getScheme()) && "wa.me".equals(i.getData().getHost())
+                    && java.util.Arrays.asList(Contacts.WHATSAPP).contains(i.getPackage());
+        return Intent.ACTION_MAIN.equals(i.getAction()) && (i.getComponent() != null || i.getPackage() != null) && i.getData() == null;
     }
 
     private void go(Intent target) {
