@@ -309,13 +309,21 @@ public final class WakeWordService extends Service {
     private void listenForCommand() { listen(this::handleCommand); }
 
     /** Listens once and passes the recognizer's guesses to the handler. */
-    private void listen(java.util.function.Consumer<List<String>> handler) {
+    private void listen(java.util.function.Consumer<List<String>> handler) { listen(handler, 0); }
+
+    /**
+     * Google's recognizer sometimes ends a new session at once with "no match" when it starts right
+     * after Jarvis spoke, or misses a short answer like "yes". Such misses are retried twice.
+     */
+    private void listen(java.util.function.Consumer<List<String>> handler, int attempt) {
         main.removeCallbacks(watchdog);
         main.postDelayed(watchdog, RESPONSE_WATCHDOG_MS);
         try {
             ComponentName delegate = JarvisRecognitionService.findDelegate(this);
             recognizer = delegate != null ? SpeechRecognizer.createSpeechRecognizer(this, delegate) : SpeechRecognizer.createSpeechRecognizer(this);
         } catch (Exception e) { say("Sorry Boss, speech recognition is not available.", this::endInteraction); return; }
+        final long startedAt = SystemClock.elapsedRealtime();
+        final boolean[] began = {false};
         recognizer.setRecognitionListener(new RecognitionListener() {
             @Override public void onResults(Bundle b) {
                 ArrayList<String> r = b == null ? null : b.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION);
@@ -324,6 +332,14 @@ public final class WakeWordService extends Service {
             }
             @Override public void onError(int e) {
                 releaseRecognizer();
+                boolean miss = e == SpeechRecognizer.ERROR_NO_MATCH || e == SpeechRecognizer.ERROR_SPEECH_TIMEOUT;
+                if (miss && attempt < 2) {
+                    long ms = SystemClock.elapsedRealtime() - startedAt;
+                    remember("", "speech miss " + e + " after " + ms + " ms" + (began[0] ? " (heard voice)" : "") + ", listening again");
+                    if (began[0]) say("Sorry Boss, please say that again.", () -> listen(handler, attempt + 1));
+                    else main.postDelayed(() -> listen(handler, attempt + 1), 400);
+                    return;
+                }
                 String msg = e == SpeechRecognizer.ERROR_NETWORK || e == SpeechRecognizer.ERROR_NETWORK_TIMEOUT || e == SpeechRecognizer.ERROR_SERVER
                         ? "Boss, internet is unavailable. I can still perform offline actions once speech works offline."
                         : e == SpeechRecognizer.ERROR_NO_MATCH || e == SpeechRecognizer.ERROR_SPEECH_TIMEOUT ? "Sorry Boss, I didn't catch that." : "Sorry Boss, I couldn't listen just now.";
@@ -331,7 +347,7 @@ public final class WakeWordService extends Service {
                 say(msg, WakeWordService.this::endInteraction);
             }
             @Override public void onReadyForSpeech(Bundle b) { }
-            @Override public void onBeginningOfSpeech() { }
+            @Override public void onBeginningOfSpeech() { began[0] = true; }
             @Override public void onRmsChanged(float v) { }
             @Override public void onBufferReceived(byte[] b) { }
             @Override public void onEndOfSpeech() { }
