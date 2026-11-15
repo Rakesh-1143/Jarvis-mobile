@@ -7,7 +7,7 @@ import java.util.regex.Pattern;
 /** Turns recognized words into one allowed action. Pure Java, unit-tested. */
 public final class VoiceCommand {
     public enum Type { OPEN_APP, SEND_MESSAGE, SEARCH, SCROLL, PLAY_ITEM, MEDIA, BACK, CALL, CALL_CONTROL, TIME, DATE, BATTERY, VOLUME, TORCH, ALARM, TIMER, SETTINGS, ASK_APP,
-        READ_NOTIFICATIONS, WHATSAPP_CALL, REMINDER, NOTE, READ_NOTES, CLEAR_NOTES, NAVIGATE, WEATHER, PHOTO, HELP, SET_NAME, SPEECH_SPEED, TAP, TYPE, HOME, RECENTS, NOTIFICATIONS, READ_SCREEN, REPEAT, SCREENSHOT, LOCK,
+        READ_NOTIFICATIONS, WHATSAPP_CALL, REMINDER, NOTE, READ_NOTES, CLEAR_NOTES, NAVIGATE, WEATHER, PHOTO, HELP, SET_NAME, SPEECH_SPEED, TAP, TYPE, HOME, RECENTS, NOTIFICATIONS, READ_SCREEN, REPEAT, SCREENSHOT, LOCK, CHANGE_VOICE,
         BRIEFING, NEXT_ALARM, CALENDAR, DND, RINGER, CALCULATE, MISSED_CALLS, CALL_BACK, REMEMBER, FORGET, READ_MEMORY, STOP_LISTENING, CANCEL, UNKNOWN }
 
     public final Type type;
@@ -174,6 +174,7 @@ public final class VoiceCommand {
     private static final Pattern REMEMBER = Pattern.compile("^(?:remember|keep in mind|don't forget|do not forget)\\s+that\\s+(.+)$|^remember\\s+((?:my|i|i'm|im|i am|our|we|mine)\\b.+)$");
     private static final Pattern FORGET = Pattern.compile("^forget\\s+(?:about\\s+|that\\s+|what i (?:said|told you) about\\s+)?(.+)$");
     private static final Pattern READ_MEMORY = Pattern.compile("^(?:what do you (?:know|remember) about me|what (?:all )?do you remember|what have i told you|what did i tell you to remember|tell me what you remember)$");
+    private static final Pattern VOICE = Pattern.compile("^(?:change|switch|try)\\s+(?:your|the|jarvis|jarvis's)?\\s*voice(?:\\s+again)?$|^(?:use|try)\\s+(?:a\\s+)?(?:different|another|new|next)\\s+voice$|^next voice$|^(?:use\\s+)?(?:your\\s+)?(default|normal|old|original)\\s+voice$");
     private static final Pattern HELP = Pattern.compile("^(?:what can you do|what do you do|help|help me|what are your commands|commands|what can i say)$");
     private static final Pattern SET_CITY = Pattern.compile("^(?:my city is|i live in|set (?:my )?(?:home )?city (?:to|as))\\s+(.+)$");
     private static final Pattern SET_NAME = Pattern.compile("^(?:call me|my name is)\\s+(.+)$");
@@ -199,6 +200,8 @@ public final class VoiceCommand {
         if (REPEAT.matcher(t).matches()) return new VoiceCommand(Type.REPEAT, "");
         if (SCREENSHOT.matcher(t).matches()) return new VoiceCommand(Type.SCREENSHOT, "");
         if (LOCK.matcher(t).matches()) return new VoiceCommand(Type.LOCK, "");
+        m = VOICE.matcher(t);
+        if (m.matches()) return new VoiceCommand(Type.CHANGE_VOICE, m.group(1) != null ? "default" : "next");
         if (BRIEFING.matcher(t).matches()) return new VoiceCommand(Type.BRIEFING, "");
         if (NEXT_ALARM.matcher(t).matches()) return new VoiceCommand(Type.NEXT_ALARM, "");
         m = CALENDAR.matcher(t);
@@ -384,6 +387,8 @@ public final class VoiceCommand {
                 return new VoiceCommand(type, tl.equals("selfie") ? "selfie" : "photo");
             case CALENDAR:
                 return new VoiceCommand(type, tl.equals("tomorrow") ? "tomorrow" : "today");
+            case CHANGE_VOICE:
+                return new VoiceCommand(type, tl.equals("default") ? "default" : "next");
             case DND:
                 return tl.matches("on|off") ? new VoiceCommand(type, tl) : null;
             case RINGER:

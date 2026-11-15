@@ -192,7 +192,7 @@ final class GeminiClient {
             + "READ_NOTIFICATIONS target=app name or \"\". NOTE message=text to save. READ_NOTES. CLEAR_NOTES. "
             + "REMEMBER message=a fact about the user to keep (never passwords, PINs, OTPs or bank details). FORGET target=words of the fact, or everything. READ_MEMORY. "
             + "NAVIGATE target=place. WEATHER target=city or \"\". PHOTO target=photo|selfie. SET_NAME target=what to call the user (message=city to set the weather city instead). "
-            + "SPEECH_SPEED target=faster|slower|normal. HELP. STOP_LISTENING. CANCEL. REPEAT.\n"
+            + "SPEECH_SPEED target=faster|slower|normal. CHANGE_VOICE target=next|default (Jarvis's speaking voice). HELP. STOP_LISTENING. CANCEL. REPEAT.\n"
             + "Rules:\n"
             + "- Pick the guess that makes most sense. Fix misheard app names to the closest installed app (cloud=Claude, what's up=WhatsApp, you tube=YouTube, insta=Instagram).\n"
             + "- Use the conversation so far: 'him', 'her', 'it', 'that', 'again', 'the same to Ravi' refer to earlier turns.\n"

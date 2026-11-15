@@ -190,6 +190,7 @@ public final class WakeWordService extends Service {
             if (!ttsReady) return;
             int r = tts.setLanguage(new Locale("en", "IN"));
             if (r == TextToSpeech.LANG_MISSING_DATA || r == TextToSpeech.LANG_NOT_SUPPORTED) tts.setLanguage(Locale.US);
+            applySavedVoice();
             tts.setAudioAttributes(new AudioAttributes.Builder().setUsage(AudioAttributes.USAGE_ASSISTANT).setContentType(AudioAttributes.CONTENT_TYPE_SPEECH).build());
             tts.setOnUtteranceProgressListener(new UtteranceProgressListener() {
                 @Override public void onStart(String id) { }
@@ -665,6 +666,26 @@ public final class WakeWordService extends Service {
                 say("Okay, I'll call you " + nm + ".", this::endInteraction);
                 return;
             }
+            case CHANGE_VOICE: {
+                if (!ttsReady || tts == null) { remember(heard, "voice: speech not ready"); endInteraction(); return; }
+                List<android.speech.tts.Voice> vs = jarvisVoices();
+                if ("default".equals(c.target) || vs.isEmpty()) {
+                    prefs(this).edit().remove(KEY_VOICE).apply();
+                    tts.setLanguage(new Locale("en", "IN"));
+                    remember(heard, "voice reset");
+                    say(vs.isEmpty() ? "Boss, this phone has only one voice for Indian English." : "Okay Boss, back to my normal voice.", this::endInteraction);
+                    return;
+                }
+                String cur = prefs(this).getString(KEY_VOICE, "");
+                int i = 0;
+                for (int k = 0; k < vs.size(); k++) if (vs.get(k).getName().equals(cur)) { i = k + 1; break; }
+                android.speech.tts.Voice v = vs.get(i % vs.size());
+                tts.setVoice(v);
+                prefs(this).edit().putString(KEY_VOICE, v.getName()).apply();
+                remember(heard, "voice " + (i % vs.size() + 1) + " of " + vs.size() + ": " + v.getName());
+                say("This is voice " + (i % vs.size() + 1) + " of " + vs.size() + ", Boss. Say change your voice again to hear the next one.", this::endInteraction);
+                return;
+            }
             case SPEECH_SPEED: {
                 float r = prefs(this).getFloat(KEY_RATE, 1.0f);
                 r = "faster".equals(c.target) ? Math.min(2.0f, r + 0.2f) : "slower".equals(c.target) ? Math.max(0.6f, r - 0.2f) : 1.0f;
@@ -1126,7 +1147,28 @@ public final class WakeWordService extends Service {
 
     // ---------- speaking ----------
 
-    static final String KEY_NAME = "user_name", KEY_RATE = "speech_rate";
+    static final String KEY_NAME = "user_name", KEY_RATE = "speech_rate", KEY_VOICE = "tts_voice";
+
+    /** Offline voices installed for Indian English (Google's voices on most phones), in a stable order. */
+    private List<android.speech.tts.Voice> jarvisVoices() {
+        List<android.speech.tts.Voice> out = new ArrayList<>();
+        try {
+            for (android.speech.tts.Voice v : tts.getVoices()) {
+                Locale l = v.getLocale();
+                if (l == null || !"en".equals(l.getLanguage()) || !"IN".equals(l.getCountry())) continue;
+                if (v.isNetworkConnectionRequired() || v.getFeatures().contains(TextToSpeech.Engine.KEY_FEATURE_NOT_INSTALLED)) continue;
+                out.add(v);
+            }
+        } catch (Exception ignored) { }
+        out.sort((a, b) -> a.getName().compareTo(b.getName()));
+        return out;
+    }
+
+    private void applySavedVoice() {
+        String name = prefs(this).getString(KEY_VOICE, "");
+        if (name.isEmpty()) return;
+        for (android.speech.tts.Voice v : jarvisVoices()) if (v.getName().equals(name)) { try { tts.setVoice(v); } catch (Exception ignored) { } return; }
+    }
 
     /** Last thing Jarvis said, for "repeat that". */
     private String lastSpoken = "";

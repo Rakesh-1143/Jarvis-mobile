@@ -408,4 +408,12 @@ public class VoiceCommandTest {
         assertTrue(VoiceCommand.isPrivate(VoiceCommand.Type.READ_MEMORY));
         assertFalse(VoiceCommand.isPrivate(VoiceCommand.Type.RINGER));
     }
+
+    @Test
+    public void parsesChangeVoice() {
+        assertEquals("next", VoiceCommand.parse("change your voice").target);
+        assertEquals(VoiceCommand.Type.CHANGE_VOICE, VoiceCommand.parse("use a different voice").type);
+        assertEquals("default", VoiceCommand.parse("use your normal voice").target);
+        assertEquals(VoiceCommand.Type.SPEECH_SPEED, VoiceCommand.parse("speak faster").type);
+    }
 }
