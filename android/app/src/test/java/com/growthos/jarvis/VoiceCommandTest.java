@@ -238,4 +238,15 @@ public class VoiceCommandTest {
         is("pause", VoiceCommand.Type.MEDIA, "pause");
         send("write message to ravi saying hi", "ravi", "hi");
     }
+
+    @Test public void findsNamesInsideStrayWords() {
+        java.util.List<AppMatcher.App> people = new java.util.ArrayList<>(PEOPLE);
+        people.add(new AppMatcher.App("Moulali", "919000000005"));
+        VoiceCommand c = VoiceCommand.parse("call tu moulali ence");
+        assertEquals(VoiceCommand.Type.CALL, c.type);
+        assertEquals("919000000005", AppMatcher.matchName(c.target, people).packageName);
+        assertEquals("919000000001", AppMatcher.matchName("to ravi", people).packageName);
+        assertNull(AppMatcher.matchName("tu suresh ence", people));
+        is("what is my battery percentage", VoiceCommand.Type.BATTERY, "");
+    }
 }

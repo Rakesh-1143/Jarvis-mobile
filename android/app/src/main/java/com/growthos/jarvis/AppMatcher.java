@@ -60,8 +60,20 @@ public final class AppMatcher {
 
     /** Best match for a person's name (no app aliases), or null. */
     public static App matchName(String spoken, List<App> people) {
-        String q = norm(spoken).replaceFirst("^(the|my)\\s+", "");
-        return q.isEmpty() ? null : find(q, people);
+        String q = norm(spoken).replaceFirst("^(the|my|to|tu|two|too)\\s+", "");
+        if (q.isEmpty()) return null;
+        App a = find(q, people);
+        if (a != null) return a;
+        // Speech engines add stray words ("tu moulali ence"): try the longest run of words that names someone.
+        String[] w = q.split(" ");
+        for (int len = Math.min(3, w.length - 1); len >= 1; len--)
+            for (int i = 0; i + len <= w.length; i++) {
+                String part = String.join(" ", java.util.Arrays.copyOfRange(w, i, i + len));
+                if (part.length() < 3 || part.matches("(?:to|tu|the|my|and|please|now|call|on|in|ence|hence|sir|anna|garu)")) continue;
+                a = find(part, people);
+                if (a != null) return a;
+            }
+        return null;
     }
 
     private static App find(String q, List<App> apps) {
