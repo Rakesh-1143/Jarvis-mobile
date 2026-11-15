@@ -122,9 +122,64 @@ public final class WakeWordService extends Service {
         }
     }
 
+    static final String KEY_GREET = "greet_unlock", KEY_SAVE_BATTERY = "save_battery", KEY_SCREEN_OFF = "listen_screen_off";
+    static final int LOW_BATTERY = 20;
+    private boolean powerHold;
+
+    /** Why listening should sleep now to save battery, or null. The assist gesture still works while sleeping. */
+    String powerReason() {
+        SharedPreferences p = prefs(this);
+        android.os.PowerManager pm = (android.os.PowerManager) getSystemService(POWER_SERVICE);
+        if (!p.getBoolean(KEY_SCREEN_OFF, true) && pm != null && !pm.isInteractive()) return "screen is off";
+        if (!p.getBoolean(KEY_SAVE_BATTERY, true)) return null;
+        if (pm != null && pm.isPowerSaveMode()) return "Battery Saver is on";
+        BatteryManager bm = (BatteryManager) getSystemService(BATTERY_SERVICE);
+        if (bm != null && !bm.isCharging() && bm.getIntProperty(BatteryManager.BATTERY_PROPERTY_CAPACITY) <= LOW_BATTERY) return "battery is " + LOW_BATTERY + "% or less";
+        return null;
+    }
+
+    private final android.content.BroadcastReceiver powerReceiver = new android.content.BroadcastReceiver() {
+        @Override public void onReceive(Context c, Intent i) { main.post(WakeWordService.this::checkPower); }
+    };
+
+    private void checkPower() {
+        if (stopping) return;
+        String why = powerReason();
+        if (why != null && mode == Mode.WAITING) {
+            powerHold = true;
+            mode = Mode.PAUSED; // the audio loop stops and releases the microphone
+            state = "Sleeping: " + why;
+            updateNotification("Sleeping to save battery (" + why + "). Long-press Home to talk.", false);
+        } else if (why == null && powerHold && mode == Mode.PAUSED) {
+            powerHold = false;
+            startWaiting();
+        }
+    }
+    private long lastGreetAt;
+
+    /** "Hello Boss!" once per unlock, only when it won't disturb: not in a call, not silent/vibrate, no music playing. */
+    private final android.content.BroadcastReceiver unlockReceiver = new android.content.BroadcastReceiver() {
+        @Override public void onReceive(Context c, Intent i) {
+            if (!Intent.ACTION_USER_PRESENT.equals(i.getAction()) || !prefs(c).getBoolean(KEY_GREET, true)) return;
+            long now = SystemClock.elapsedRealtime();
+            if (now - lastGreetAt < 30_000L || mode == Mode.RESPONDING || !ttsReady || tts == null) return;
+            AudioManager am = (AudioManager) getSystemService(AUDIO_SERVICE);
+            if (am == null || am.getMode() != AudioManager.MODE_NORMAL || am.getRingerMode() != AudioManager.RINGER_MODE_NORMAL || am.isMusicActive()) return;
+            lastGreetAt = now;
+            tts.speak("Hello Boss!", TextToSpeech.QUEUE_ADD, new Bundle(), "jarvis-greet");
+        }
+    };
+
     @Override public void onCreate() {
         super.onCreate();
         instance = this;
+        try { registerReceiver(unlockReceiver, new android.content.IntentFilter(Intent.ACTION_USER_PRESENT)); } catch (Exception ignored) { }
+        try {
+            android.content.IntentFilter f = new android.content.IntentFilter();
+            for (String a : new String[]{android.os.PowerManager.ACTION_POWER_SAVE_MODE_CHANGED, Intent.ACTION_BATTERY_CHANGED, Intent.ACTION_POWER_CONNECTED,
+                    Intent.ACTION_POWER_DISCONNECTED, Intent.ACTION_SCREEN_ON, Intent.ACTION_SCREEN_OFF}) f.addAction(a);
+            registerReceiver(powerReceiver, f);
+        } catch (Exception ignored) { }
         createChannel();
         if (!goForeground(notification("Starting…", false))) { stopSelf(); return; }
         running = true;
@@ -180,6 +235,9 @@ public final class WakeWordService extends Service {
         if (stopping) return;
         if (!isEnabled(this)) { stopSelf(); return; }
         mode = Mode.WAITING;
+        String why = powerReason();
+        if (why != null) { mode = Mode.WAITING; checkPower(); return; }
+        powerHold = false;
         state = "Listening for \"" + prefs(this).getString(KEY_PHRASE, "Hey Jarvis") + "\"";
         updateNotification("Say \"" + prefs(this).getString(KEY_PHRASE, "Hey Jarvis") + "\". Audio stays on this phone.", false);
         if (audioThread != null && audioThread.isAlive()) return;
@@ -479,6 +537,13 @@ public final class WakeWordService extends Service {
                 say(seen == null ? "Boss, I don't read this app." : seen.isEmpty() ? "Boss, I see no text on the screen." : seen, this::endInteraction);
                 return;
             }
+            case READ_NOTIFICATIONS: {
+                if (!JarvisNotifications.connected()) { remember(heard, "notification access off"); say("Boss, turn on notification reading in Jarvis setup first.", this::endInteraction); return; }
+                String r = JarvisNotifications.readRecent(this, c.target, 5);
+                remember(heard, "read notifications" + (c.target.isEmpty() ? "" : " from " + c.target));
+                say(r == null ? "Boss, I couldn't read notifications." : r, this::endInteraction);
+                return;
+            }
             case TIME: remember(heard, "time"); say(PhoneActions.time(), this::endInteraction); return;
             case DATE: remember(heard, "date"); say(PhoneActions.date(), this::endInteraction); return;
             case BATTERY: remember(heard, "battery"); say(PhoneActions.battery(this), this::endInteraction); return;
@@ -572,8 +637,17 @@ public final class WakeWordService extends Service {
                         return;
                     }
                 }
-                remember(heard, heard.isEmpty() ? "nothing understood" : "not a known command");
-                say(heard.isEmpty() ? "Sorry Boss, I didn't catch that." : "Boss, I can't do that one yet. Try open, search, call, message, tap, type, scroll, or ask Claude.", this::endInteraction);
+                if (heard.isEmpty()) { remember(heard, "nothing understood"); say("Sorry Boss, I didn't catch that.", this::endInteraction); return; }
+                // Anything else is a question for Gemini (only the words are sent, with the user's own key).
+                remember(heard, "asked Gemini");
+                updateNotification("Thinking…", false);
+                main.removeCallbacks(watchdog);
+                main.postDelayed(watchdog, RESPONSE_WATCHDOG_MS);
+                final String q = heard;
+                new Thread(() -> {
+                    String answer = GeminiClient.ask(this, q);
+                    main.post(() -> { if (mode == Mode.RESPONDING) say(answer, this::endInteraction); });
+                }, "jarvis-gemini").start();
             }
         }
     }
@@ -753,6 +827,8 @@ public final class WakeWordService extends Service {
 
     @Override public void onDestroy() {
         if (instance == this) instance = null;
+        try { unregisterReceiver(unlockReceiver); } catch (Exception ignored) { }
+        try { unregisterReceiver(powerReceiver); } catch (Exception ignored) { }
         stopping = true;
         running = false;
         state = "Off";

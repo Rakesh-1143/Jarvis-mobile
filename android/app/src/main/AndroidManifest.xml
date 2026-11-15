@@ -29,6 +29,10 @@
             <intent-filter><action android:name="android.accessibilityservice.AccessibilityService" /></intent-filter>
             <meta-data android:name="android.accessibilityservice" android:resource="@xml/whatsapp_sender" />
         </service>
+        <!-- Optional, user-enabled: reads recent notifications aloud on request; skips OTPs and bank messages. -->
+        <service android:name=".JarvisNotifications" android:exported="true" android:label="KALKI" android:permission="android.permission.BIND_NOTIFICATION_LISTENER_SERVICE">
+            <intent-filter><action android:name="android.service.notification.NotificationListenerService" /></intent-filter>
+        </service>
         <service android:name=".WakeWordService" android:exported="false" android:foregroundServiceType="microphone" />
         <!-- Default digital assistant (user picks it in Android settings). -->
         <service android:name=".JarvisVoiceInteractionService" android:exported="true" android:label="KALKI" android:permission="android.permission.BIND_VOICE_INTERACTION">

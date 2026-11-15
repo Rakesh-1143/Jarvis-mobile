@@ -32,7 +32,7 @@ public final class MainActivity extends Activity {
         webView.addJavascriptInterface(advancedBridge,"JarvisAdvanced"); webView.setWebViewClient(new WebViewClient(){
             @Override public boolean shouldOverrideUrlLoading(WebView v,WebResourceRequest r){return r.isForMainFrame()&&openExternalIfNeeded(r.getUrl());}
             @Override public boolean shouldOverrideUrlLoading(WebView v,String u){return openExternalIfNeeded(Uri.parse(u));}
-            @Override public void onPageFinished(WebView v,String u){super.onPageFinished(v,u);dispatchPendingShare();}
+            @Override public void onPageFinished(WebView v,String u){super.onPageFinished(v,u);dispatchPendingShare();copyAiKey();}
         });
         webView.setWebChromeClient(new WebChromeClient(){
             @Override public void onPermissionRequest(final PermissionRequest r){runOnUiThread(()->{if(hasRecordAudioPermission()&&isTrustedOrigin(r.getOrigin()))r.grant(new String[]{PermissionRequest.RESOURCE_AUDIO_CAPTURE});else if(!hasRecordAudioPermission()){pendingPermissionRequest=r;requestPermissions(new String[]{Manifest.permission.RECORD_AUDIO},AUDIO_REQUEST);}else r.deny();});}
@@ -52,6 +52,10 @@ public final class MainActivity extends Activity {
         } catch(Exception ignored){Toast.makeText(this,"Unable to preview shared content",Toast.LENGTH_SHORT).show();}
     }
     private void addShareUri(JSONArray fs,Uri u,String type)throws Exception{if(u==null)return;JSONObject f=new JSONObject();f.put("uri",u.toString());f.put("name",u.getLastPathSegment()==null?"Shared item":u.getLastPathSegment());f.put("mimeType",type==null?"application/octet-stream":type);fs.put(f);}
+    /** Lets voice commands answer questions with the Gemini key the user saved in KALKI settings. Only from KALKI's own page; stays on this phone. */
+    private void copyAiKey(){if(webView==null)return;String u=webView.getUrl();if(u==null||!"rakesh-1143.github.io".equalsIgnoreCase(Uri.parse(u).getHost()))return;
+        webView.evaluateJavascript("(function(){try{return localStorage.getItem('jarvis_api_key')||''}catch(e){return ''}})()",v->{try{if(v!=null&&v.length()>2)GeminiClient.saveKey(this,new org.json.JSONArray("["+v+"]").getString(0));}catch(Exception ignored){}});}
+    @Override protected void onPause(){copyAiKey();super.onPause();}
     private void dispatchPendingShare(){if(webView==null||pendingShareJson==null)return;String q=JSONObject.quote(pendingShareJson);webView.post(()->webView.evaluateJavascript("window.dispatchEvent(new CustomEvent('kalki-share',{detail:JSON.parse("+q+")}));",null));}
     private void dispatch(String event,String value){if(webView==null)return;webView.post(()->webView.evaluateJavascript("window.dispatchEvent(new CustomEvent("+JSONObject.quote(event)+",{detail:"+JSONObject.quote(value)+"}));",null));}
     private String JSONObjectQuote(String s){return org.json.JSONObject.quote(s);}

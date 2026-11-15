@@ -249,4 +249,16 @@ public class VoiceCommandTest {
         assertNull(AppMatcher.matchName("tu suresh ence", people));
         is("what is my battery percentage", VoiceCommand.Type.BATTERY, "");
     }
+
+    @Test public void parsesNotificationsAndQuestions() {
+        is("read my notifications", VoiceCommand.Type.READ_NOTIFICATIONS, "");
+        is("any new messages", VoiceCommand.Type.READ_NOTIFICATIONS, "");
+        is("read my whatsapp messages", VoiceCommand.Type.READ_NOTIFICATIONS, "whatsapp");
+        is("check notifications from instagram", VoiceCommand.Type.READ_NOTIFICATIONS, "instagram");
+        is("do i have any new messages", VoiceCommand.Type.READ_NOTIFICATIONS, "");
+        assertEquals(VoiceCommand.Type.UNKNOWN, VoiceCommand.parse("who is the prime minister of india").type);
+        assertEquals(VoiceCommand.Type.UNKNOWN, VoiceCommand.parse("tell me a joke").type);
+        assertEquals(VoiceCommand.Type.NOTIFICATIONS, VoiceCommand.parse("open notifications").type);
+        assertEquals("hello world", GeminiClient.clean("**hello** _world_"));
+    }
 }

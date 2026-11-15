@@ -7,7 +7,7 @@ import java.util.regex.Pattern;
 /** Turns recognized words into one allowed action. Pure Java, unit-tested. */
 public final class VoiceCommand {
     public enum Type { OPEN_APP, SEND_MESSAGE, SEARCH, SCROLL, PLAY_ITEM, MEDIA, BACK, CALL, CALL_CONTROL, TIME, DATE, BATTERY, VOLUME, TORCH, ALARM, TIMER, SETTINGS, ASK_APP,
-        TAP, TYPE, HOME, RECENTS, NOTIFICATIONS, READ_SCREEN, STOP_LISTENING, CANCEL, UNKNOWN }
+        READ_NOTIFICATIONS, TAP, TYPE, HOME, RECENTS, NOTIFICATIONS, READ_SCREEN, STOP_LISTENING, CANCEL, UNKNOWN }
 
     public final Type type;
     /** For OPEN_APP the app name; for SEND_MESSAGE the person's name; for SEARCH the app ("" = web). */
@@ -146,8 +146,12 @@ public final class VoiceCommand {
     private static final Pattern NOTIFS = Pattern.compile("^(?:open|show|pull down)\\s+(?:my\\s+|the\\s+)?notifications?(?:\\s+panel)?$");
     private static final Pattern READ = Pattern.compile("^(?:read|read out)\\s+(?:the\\s+|this\\s+)?screen$|^what(?:'s|s| is)\\s+on\\s+(?:the\\s+|my\\s+)?screen$|^read (?:it|this)$");
 
+    private static final Pattern READ_NOTIFS = Pattern.compile("^(?:read|check|show|tell me|what are|any)\\s+(?:out\\s+)?(?:my\\s+|the\\s+)?(?:new\\s+|latest\\s+|recent\\s+|unread\\s+)?(?:(whatsapp|whats app|instagram|gmail|telegram|sms|youtube)\\s+)?(?:notifications?|messages?|alerts)(?:\\s+(?:from|on|in)\\s+(whatsapp|instagram|gmail|telegram|sms|youtube))?$|^do i have any\\s+(?:new\\s+)?(?:notifications?|messages?)$");
+
     private static VoiceCommand device(String t) {
         Matcher m;
+        m = READ_NOTIFS.matcher(t);
+        if (m.matches()) return new VoiceCommand(Type.READ_NOTIFICATIONS, m.group(1) != null ? m.group(1).replace("whats app", "whatsapp") : m.group(2) != null ? m.group(2) : "");
         if (ANSWER.matcher(t).matches()) return new VoiceCommand(Type.CALL_CONTROL, "answer");
         if (REJECT.matcher(t).matches()) return new VoiceCommand(Type.CALL_CONTROL, "reject");
         if (END_CALL.matcher(t).matches()) return new VoiceCommand(Type.CALL_CONTROL, "end");

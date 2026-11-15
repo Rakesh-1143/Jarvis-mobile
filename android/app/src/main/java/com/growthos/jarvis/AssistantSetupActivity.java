@@ -162,6 +162,23 @@ public final class AssistantSetupActivity extends Activity {
         boolean contacts = Contacts.allowed(this);
         row("Contacts permission (for \"send message to …\")", contacts ? "Allowed · names are read on the phone only" : "Not allowed", contacts);
         if (!contacts) button("Allow contacts", v -> requestPermissions(new String[]{Manifest.permission.READ_CONTACTS}, CONTACTS_REQUEST));
+        boolean save = sp.getBoolean(WakeWordService.KEY_SAVE_BATTERY, true);
+        row("Sleep on low battery", save ? "On · stops listening at " + WakeWordService.LOW_BATTERY + "% or with Battery Saver (long-press Home still works)" : "Off · listens even when battery is low", null);
+        button(save ? "Keep listening on low battery" : "Sleep on low battery", v -> { sp.edit().putBoolean(WakeWordService.KEY_SAVE_BATTERY, !save).apply(); restartWake(); render(); });
+        boolean screenOff = sp.getBoolean(WakeWordService.KEY_SCREEN_OFF, true);
+        row("Listen while screen is off", screenOff ? "On · works when locked; uses more battery" : "Off · listens only while the screen is on (saves battery)", null);
+        button(screenOff ? "Listen only when screen is on" : "Listen while screen is off too", v -> { sp.edit().putBoolean(WakeWordService.KEY_SCREEN_OFF, !screenOff).apply(); restartWake(); render(); });
+        boolean greet = sp.getBoolean(WakeWordService.KEY_GREET, true);
+        row("\"Hello Boss!\" when you unlock", greet ? "On · skipped during calls, silent mode and music" : "Off", null);
+        button(greet ? "Turn off unlock greeting" : "Turn on unlock greeting", v -> { sp.edit().putBoolean(WakeWordService.KEY_GREET, !greet).apply(); render(); });
+        boolean ai = GeminiClient.hasKey(this);
+        row("Answers to questions (Gemini)", ai ? "Ready · uses the Gemini key you saved in KALKI; only your words are sent" : "No key yet · save your Gemini key in KALKI Settings, then open KALKI once", ai);
+        boolean notif = JarvisNotifications.isOn(this);
+        row("Read notifications aloud", notif ? "On · never reads OTPs, codes or bank messages" : "Off", notif);
+        button(notif ? "Turn off notification reading" : "Turn on notification reading", v -> {
+            Toast.makeText(this, "Tap KALKI and allow notification access", Toast.LENGTH_LONG).show();
+            try { startActivity(new Intent(android.provider.Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS)); } catch (Exception ignored) { }
+        });
         boolean calls = checkSelfPermission(Manifest.permission.CALL_PHONE) == PackageManager.PERMISSION_GRANTED
                 && checkSelfPermission(Manifest.permission.ANSWER_PHONE_CALLS) == PackageManager.PERMISSION_GRANTED;
         row("Phone calls (for \"call …\", \"answer\", \"end call\")", calls ? "Allowed · Jarvis asks before every call" : "Not allowed · Jarvis opens the dialer instead", calls);
@@ -295,6 +312,9 @@ public final class AssistantSetupActivity extends Activity {
         super.onRequestPermissionsResult(code, perms, results);
         render();
     }
+
+    /** Applies a listening setting change at once. */
+    private void restartWake() { if (WakeWordService.isEnabled(this)) WakeWordService.start(this, null); }
 
     private static String time(long ms) { return DateFormat.getDateTimeInstance(DateFormat.SHORT, DateFormat.SHORT).format(new Date(ms)); }
 

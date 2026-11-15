@@ -76,7 +76,8 @@ final class SelfTest {
                 {"scroll down", "SCROLL"}, {"play the second video", "PLAY_ITEM"}, {"pause", "MEDIA"}, {"call amma", "CALL"},
                 {"what time is it", "TIME"}, {"battery", "BATTERY"}, {"volume up", "VOLUME"}, {"turn on torch", "TORCH"},
                 {"set alarm for 6 am", "ALARM"}, {"timer 5 minutes", "TIMER"}, {"open wifi settings", "SETTINGS"},
-                {"ask claude what is ai", "ASK_APP"}, {"tap search", "TAP"}, {"type hello", "TYPE"}, {"go home", "HOME"}, {"read the screen", "READ_SCREEN"}};
+                {"ask claude what is ai", "ASK_APP"}, {"tap search", "TAP"}, {"type hello", "TYPE"}, {"go home", "HOME"}, {"read the screen", "READ_SCREEN"},
+                {"read my notifications", "READ_NOTIFICATIONS"}, {"who is the prime minister of india", "UNKNOWN"}};
         int ok = 0; StringBuilder bad = new StringBuilder();
         for (String[] s : samples) { String got = VoiceCommand.parse(s[0]).type.name(); if (got.equals(s[1])) ok++; else bad.append(s[0]).append("->").append(got).append("; "); }
         check("understands " + samples.length + " sample commands", ok == samples.length, ok + "/" + samples.length + (bad.length() > 0 ? " " + bad : ""));
@@ -92,6 +93,9 @@ final class SelfTest {
         check("WhatsApp chat link can open", wa != null && resolves(Contacts.whatsappChat(wa, "919999999999", "hi")), wa);
         AppMatcher.App claude = AppMatcher.match("claude", apps);
         check("Claude accepts a question", claude != null && resolves(PhoneActions.shareText(claude.packageName, "hi")), null);
+        check("Gemini key available for questions", GeminiClient.hasKey(a), "save it in KALKI Settings, then open KALKI once");
+        check("Notification reading on", JarvisNotifications.isOn(a), JarvisNotifications.connected() ? "connected" : "not connected");
+        info("unlock greeting", a.getSharedPreferences("jarvis_settings", Context.MODE_PRIVATE).getBoolean(WakeWordService.KEY_GREET, true) ? "on" : "off");
         // Hardware
         boolean flash = false;
         try { CameraManager cm = (CameraManager) a.getSystemService(Context.CAMERA_SERVICE);
