@@ -31,6 +31,12 @@ public final class VoiceCommand {
     /** Apps where "X in <app>" alone clearly means a search. */
     private static final Pattern SEARCHABLE = Pattern.compile("^(?:youtube|you tube|google|chrome|play store|maps|google maps|spotify|amazon|flipkart)$");
     private static final Pattern BARE_IN_APP = Pattern.compile("^(.+?)" + IN_APP + "$");
+    private static final String POLITE = "(?:please|pls|can you|could you|will you|would you|can u|i want to|i want you to|i need to|i would like to|just|boss|now|ok|okay)";
+    private static final Pattern OPEN_WHATSAPP_THEN = Pattern.compile("^(?:open|go to|launch|start)\\s+(?:whatsapp|whats app)\\s+(?:and\\s+|then\\s+|and then\\s+)?(.+)$");
+    // after "open WhatsApp and": "find the name Ravi", "open Ravi chat", "go to chat with Ravi"
+    private static final Pattern FIND_CHAT = Pattern.compile("^(?:find|search|search for|open|go to|look for|check)\\s+(?:the\\s+)?(?:name\\s+|contact\\s+|chat\\s+(?:with\\s+|of\\s+)?)?(.+?)(?:\\s+(?:chat|contact))?$");
+    // "send Ravi a message saying hi", "send Ravi a message"
+    private static final Pattern SEND_NAME_FIRST = Pattern.compile("^send\\s+(.+?)\\s+a\\s+(?:whatsapp\\s+)?(?:message|msg|text)(?:" + SAYING + "(.+))?$");
     // "send hi to Ravi"
     private static final Pattern SEND_WORDS = Pattern.compile("^(?:please\\s+)?send\\s+(.+?)\\s+to\\s+(.+)$");
 
@@ -42,16 +48,32 @@ public final class VoiceCommand {
     public static VoiceCommand parse(String text) {
         String t = text == null ? "" : text.toLowerCase(Locale.ROOT).replaceAll("[.!?,]+", " ").replaceAll("\\s+", " ").trim();
         t = t.replaceFirst("^(?:hey\\s+)?(?:jarvis|kalki)\\s+", "");
+        // Polite starts: "can you", "please", "I want to", "boss" ...
+        String before;
+        do { before = t; t = t.replaceFirst("^" + POLITE + "\\s+", ""); } while (!t.equals(before));
         if (t.isEmpty()) return new VoiceCommand(Type.UNKNOWN, "");
         if (STOP.matcher(t).matches()) return new VoiceCommand(Type.STOP_LISTENING, "");
         if (CANCEL.matcher(t).matches()) return new VoiceCommand(Type.CANCEL, "");
         String w = t.replaceFirst("\\s+(?:on|in|through|via|using)\\s+(?:whatsapp|whats app)$", "");
-        Matcher m = SEND_TO.matcher(w);
+        // "open WhatsApp (and) send message to Ravi saying hi" -> "send message to Ravi saying hi"
+        Matcher m = OPEN_WHATSAPP_THEN.matcher(w);
+        if (m.matches()) {
+            w = m.group(1);
+            Matcher f = FIND_CHAT.matcher(w);
+            if (f.matches()) return send(f.group(1), "");
+        }
+        m = SEND_TO.matcher(w);
         if (m.matches()) return send(m.group(1), m.group(2));
         m = VERB_TO.matcher(w);
         if (m.matches()) return send(m.group(1), m.group(2));
         m = SEND_WORDS.matcher(w);
-        if (m.matches() && !m.group(1).matches("(?:a\\s+)?(?:whatsapp\\s+)?(?:message|msg|text)")) return send(m.group(2), m.group(1));
+        if (m.matches()) {
+            String words = m.group(1).replaceFirst("^(?:a\\s+)?(?:whatsapp\\s+|whats app\\s+)?(?:message|msg|text|massage)(?:\\s+|$)", "")
+                    .replaceFirst("^(?:saying|that)\\s+", "");
+            return send(m.group(2), words);
+        }
+        m = SEND_NAME_FIRST.matcher(w);
+        if (m.matches()) return send(m.group(1), m.group(2) == null ? "" : m.group(2));
         m = SEARCH_IN.matcher(w);
         if (m.matches()) return search(m.group(2), m.group(1));
         m = OPEN_AND_SEARCH.matcher(w);

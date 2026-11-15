@@ -144,4 +144,18 @@ public class VoiceCommandTest {
         assertEquals("in.startv.hotstar", AppMatcher.match("hotstar", apps).packageName);
         assertEquals("in.startv.hotstar", AppMatcher.match("jio hotstar", apps).packageName);
     }
+
+    @Test public void parsesNaturalWhatsAppPhrasings() {
+        send("Open WhatsApp send message to Ravi saying hi", "ravi", "hi");
+        send("can you open WhatsApp and send message hi to Ravi", "ravi", "hi");
+        send("can you send message to Ravi saying hi", "ravi", "hi");
+        send("open WhatsApp and find the name Ravi", "ravi", "");
+        send("open whatsapp and open ravi chat", "ravi", "");
+        send("send message hi to Ravi", "ravi", "hi");
+        send("please send Ravi a message saying good morning", "ravi", "good morning");
+        send("I want to send a message to Amma", "amma", "");
+        send("Jarvis can you please tell Kiran that I am late", "kiran", "i am late");
+        assertEquals(VoiceCommand.Type.OPEN_APP, VoiceCommand.parse("can you open WhatsApp").type);
+        assertEquals(VoiceCommand.Type.OPEN_APP, VoiceCommand.parse("open whatsapp").type);
+    }
 }
