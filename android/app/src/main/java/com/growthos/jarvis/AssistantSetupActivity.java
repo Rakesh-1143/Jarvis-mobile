@@ -56,14 +56,25 @@ public final class AssistantSetupActivity extends Activity {
         list.setPadding(p, p, p, p);
         scroll.addView(list);
         setContentView(scroll);
-        tts = new TextToSpeech(this, status -> runOnUiThread(() -> { ttsStatus = describeTts(status); render(); }));
+        try { tts = new TextToSpeech(this, status -> runOnUiThread(() -> { ttsStatus = describeTts(status); render(); })); }
+        catch (Exception e) { ttsStatus = "Not available"; }
     }
 
     @Override protected void onResume() { super.onResume(); render(); }
 
     @Override protected void onDestroy() { if (tts != null) tts.shutdown(); super.onDestroy(); }
 
+    /** Never close the screen on an error: show it instead, so it can be copied and reported. */
     private void render() {
+        try { renderChecks(); }
+        catch (Throwable t) {
+            note("Error while checking: " + t);
+            report.append("\nERROR: ").append(t).append('\n');
+            button("Copy report", v -> copyReport());
+        }
+    }
+
+    private void renderChecks() {
         list.removeAllViews();
         report.setLength(0);
         title("Jarvis setup");
@@ -143,13 +154,19 @@ public final class AssistantSetupActivity extends Activity {
     }
 
     private boolean isOnline() {
-        ConnectivityManager cm = (ConnectivityManager) getSystemService(CONNECTIVITY_SERVICE);
-        if (cm == null) return false;
-        NetworkCapabilities nc = cm.getNetworkCapabilities(cm.getActiveNetwork());
-        return nc != null && nc.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET) && nc.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED);
+        try {
+            ConnectivityManager cm = (ConnectivityManager) getSystemService(CONNECTIVITY_SERVICE);
+            if (cm == null || cm.getActiveNetwork() == null) return false;
+            NetworkCapabilities nc = cm.getNetworkCapabilities(cm.getActiveNetwork());
+            return nc != null && nc.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET) && nc.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED);
+        } catch (Exception e) { return false; }
     }
 
     private String describeTts(int status) {
+        try { return describeTtsUnsafe(status); } catch (Exception e) { return "Not available (" + e.getClass().getSimpleName() + ")"; }
+    }
+
+    private String describeTtsUnsafe(int status) {
         if (status != TextToSpeech.SUCCESS || tts == null) return "Not available";
         String engine = tts.getDefaultEngine();
         int en = tts.isLanguageAvailable(new Locale("en", "IN"));
