@@ -9,8 +9,8 @@ import android.widget.Toast;
 
 /**
  * Invisible step between Jarvis and the app it opens. If the phone is locked it asks Android
- * to show the unlock screen first; Jarvis never bypasses the lock. Only opens app launch intents
- * and WhatsApp chat links (which only type the message; the user taps Send).
+ * to show the unlock screen first; Jarvis never bypasses the lock. Only opens apps, searches
+ * and in-app links (see isAppLaunch).
  */
 public final class LaunchActivity extends Activity {
     @Override protected void onCreate(Bundle state) {
@@ -28,13 +28,15 @@ public final class LaunchActivity extends Activity {
         } else go(target);
     }
 
-    /** Only a normal "open this app" intent, or a WhatsApp chat link, is allowed. */
+    /** Only "open this app", a search, or a link that opens a page inside an app. Never calls or payments. */
     static boolean isAppLaunch(Intent i) {
-        if (i == null) return false;
-        if (Intent.ACTION_VIEW.equals(i.getAction()) && i.getData() != null && i.getComponent() == null)
-            return "https".equals(i.getData().getScheme()) && "wa.me".equals(i.getData().getHost())
-                    && java.util.Arrays.asList(Contacts.WHATSAPP).contains(i.getPackage());
-        return Intent.ACTION_MAIN.equals(i.getAction()) && (i.getComponent() != null || i.getPackage() != null) && i.getData() == null;
+        if (i == null || i.getComponent() != null && !Intent.ACTION_MAIN.equals(i.getAction())) return false;
+        String a = i.getAction();
+        if (Intent.ACTION_MAIN.equals(a)) return (i.getComponent() != null || i.getPackage() != null) && i.getData() == null;
+        if (Intent.ACTION_SEARCH.equals(a) || Intent.ACTION_WEB_SEARCH.equals(a)) return i.getData() == null;
+        if (Intent.ACTION_VIEW.equals(a) && i.getData() != null)
+            return java.util.Arrays.asList("https", "market", "geo", "spotify").contains(i.getData().getScheme());
+        return false;
     }
 
     private void go(Intent target) {

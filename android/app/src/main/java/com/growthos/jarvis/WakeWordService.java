@@ -70,6 +70,14 @@ public final class WakeWordService extends Service {
 
     /** Read by the setup screen. */
     static volatile boolean running;
+    private static volatile WakeWordService instance;
+
+    /** Speaks a short note (for example "Message sent") if Jarvis is running. */
+    static void announce(String text) {
+        WakeWordService w = instance;
+        if (w == null) return;
+        w.main.post(() -> { if (w.ttsReady && w.tts != null && w.mode != Mode.RESPONDING) w.tts.speak(text, TextToSpeech.QUEUE_ADD, new Bundle(), "jarvis-note"); });
+    }
     static volatile String state = "Off";
     /** Live values for the setup screen (same process; nothing is stored). */
     static volatile float liveDb = -120f, liveScore, bestScore, liveMatch, bestMatch;
@@ -116,6 +124,7 @@ public final class WakeWordService extends Service {
 
     @Override public void onCreate() {
         super.onCreate();
+        instance = this;
         createChannel();
         if (!goForeground(notification("Starting…", false))) { stopSelf(); return; }
         running = true;
@@ -297,7 +306,12 @@ public final class WakeWordService extends Service {
         say("Yes Boss?", this::listenForCommand);
     }
 
-    private void listenForCommand() {
+    private void listenForCommand() { listen(this::handleCommand); }
+
+    /** Listens once and passes the recognizer's guesses to the handler. */
+    private void listen(java.util.function.Consumer<List<String>> handler) {
+        main.removeCallbacks(watchdog);
+        main.postDelayed(watchdog, RESPONSE_WATCHDOG_MS);
         try {
             ComponentName delegate = JarvisRecognitionService.findDelegate(this);
             recognizer = delegate != null ? SpeechRecognizer.createSpeechRecognizer(this, delegate) : SpeechRecognizer.createSpeechRecognizer(this);
@@ -306,7 +320,7 @@ public final class WakeWordService extends Service {
             @Override public void onResults(Bundle b) {
                 ArrayList<String> r = b == null ? null : b.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION);
                 releaseRecognizer();
-                handleCommand(r == null ? new ArrayList<>() : r);
+                handler.accept(r == null ? new ArrayList<>() : r);
             }
             @Override public void onError(int e) {
                 releaseRecognizer();
@@ -346,7 +360,7 @@ public final class WakeWordService extends Service {
         String text = guesses.isEmpty() || guesses.get(0) == null ? "" : guesses.get(0);
         VoiceCommand c = VoiceCommand.parse(text);
         List<AppMatcher.App> apps = null;
-        if (c.type == VoiceCommand.Type.OPEN_APP || c.type == VoiceCommand.Type.UNKNOWN) {
+        if (c.type == VoiceCommand.Type.OPEN_APP || c.type == VoiceCommand.Type.SEARCH || c.type == VoiceCommand.Type.UNKNOWN) {
             apps = launcherApps();
             for (String g : guesses) {
                 VoiceCommand gc = VoiceCommand.parse(g);
@@ -365,6 +379,25 @@ public final class WakeWordService extends Service {
                 say("Opening " + app.label + ".", () -> { AppOpener.open(this, launch); endInteraction(); });
                 return;
             }
+            case SEARCH: {
+                AppMatcher.App app = c.target.isEmpty() ? null : AppMatcher.match(c.target, apps);
+                if (!c.target.isEmpty() && app == null && !c.target.matches("(?:google|web|internet)")) {
+                    remember(heard, "app not found: " + c.target);
+                    say("Boss, I could not find " + c.target + ". That application is not installed.", this::endInteraction);
+                    return;
+                }
+                Intent search = Searches.intent(this, app == null ? null : app.packageName, c.message);
+                String where = app == null ? "Google" : app.label;
+                if (search == null) {
+                    Intent launch = getPackageManager().getLaunchIntentForPackage(app.packageName);
+                    remember(heard, "no search in " + where + ", opened it");
+                    say("Boss, I can't search inside " + where + " yet. Opening " + where + ".", () -> { if (launch != null) AppOpener.open(this, launch); endInteraction(); });
+                    return;
+                }
+                remember(heard, "searched " + where + " for: " + c.message);
+                say("Searching " + c.message + " on " + where + ".", () -> { AppOpener.open(this, search); endInteraction(); });
+                return;
+            }
             case SEND_MESSAGE:
                 sendMessage(heard, c, guesses);
                 return;
@@ -377,13 +410,29 @@ public final class WakeWordService extends Service {
                 remember(heard, "cancelled");
                 say("Okay Boss.", this::endInteraction);
                 return;
-            default:
+            default: {
+                // Just an app name, like "Hotstar".
+                for (String g : guesses) {
+                    if (g == null || g.trim().isEmpty() || g.trim().split("\\s+").length > 3) continue;
+                    AppMatcher.App app = AppMatcher.match(g, apps);
+                    Intent launch = app == null ? null : getPackageManager().getLaunchIntentForPackage(app.packageName);
+                    if (launch != null) {
+                        remember(g, "opened " + app.label);
+                        say("Opening " + app.label + ".", () -> { AppOpener.open(this, launch); endInteraction(); });
+                        return;
+                    }
+                }
                 remember(heard, heard.isEmpty() ? "nothing understood" : "not a known command");
-                say(heard.isEmpty() ? "Sorry Boss, I didn't catch that." : "Boss, for now I can open apps and send WhatsApp messages. More commands are coming soon.", this::endInteraction);
+                say(heard.isEmpty() ? "Sorry Boss, I didn't catch that." : "Boss, I can open apps, search apps like YouTube, and send WhatsApp messages. That one I can't do yet.", this::endInteraction);
+            }
         }
     }
 
-    /** Opens the WhatsApp chat of a contact with the message typed in. Never presses Send. */
+    /**
+     * WhatsApp message by voice: finds the contact, asks for the words if missing, reads the
+     * message back and asks "Send it, Boss?". Only a spoken yes lets WhatsAppSender tap Send.
+     * Without the accessibility switch on, the chat opens with the message typed and the user taps Send.
+     */
     private void sendMessage(String heard, VoiceCommand c, List<String> guesses) {
         String pkg = Contacts.whatsappPackage(this);
         if (pkg == null) { remember(heard, "WhatsApp not installed"); say("Boss, WhatsApp is not installed.", this::endInteraction); return; }
@@ -403,9 +452,37 @@ public final class WakeWordService extends Service {
         if (who == null) { remember(heard, "contact not found: " + c.target); say("Boss, I couldn't find " + c.target + " in your contacts.", this::endInteraction); return; }
         AppMatcher.App person = who;
         String text = used.message.isEmpty() ? c.message : used.message;
-        remember(heard, "WhatsApp chat with " + person.label + (text.isEmpty() ? "" : ", typed: " + text));
-        say("Opening WhatsApp chat with " + person.label + ". Please tap send, Boss.",
-                () -> { AppOpener.open(this, Contacts.whatsappChat(pkg, person.packageName, text)); endInteraction(); });
+        if (text.isEmpty()) {
+            say("What should I say to " + person.label + "?", () -> listen(r -> {
+                String words = r.isEmpty() || r.get(0) == null ? "" : r.get(0).trim();
+                if (words.isEmpty() || VoiceCommand.isNo(words)) { remember(heard, "cancelled"); say("Okay Boss, not sent.", this::endInteraction); return; }
+                confirmAndSend(heard, pkg, person, words);
+            }));
+            return;
+        }
+        confirmAndSend(heard, pkg, person, text);
+    }
+
+    private void confirmAndSend(String heard, String pkg, AppMatcher.App person, String text) {
+        if (!WhatsAppSender.isOn(this)) {
+            remember(heard, "WhatsApp chat with " + person.label + ", typed (send switch off)");
+            say("Opening WhatsApp chat with " + person.label + ". Please tap send, Boss. To send by voice, turn on Jarvis send in Jarvis setup.",
+                    () -> { AppOpener.open(this, Contacts.whatsappChat(pkg, person.packageName, text)); endInteraction(); });
+            return;
+        }
+        say("Message to " + person.label + ": " + text + ". Send it, Boss?", () -> listen(r -> {
+            boolean yes = false, no = false;
+            for (String g : r) { if (g == null) continue; if (VoiceCommand.isYes(g)) { yes = true; break; } if (VoiceCommand.isNo(g)) no = true; }
+            if (!yes) {
+                remember(heard, "not sent to " + person.label + (no ? " (you said no)" : " (no yes heard)"));
+                say("Okay Boss, not sent.", this::endInteraction);
+                return;
+            }
+            remember(heard, "sending to " + person.label + ": " + text);
+            WhatsAppSender.arm(pkg, text);
+            AppOpener.open(this, Contacts.whatsappChat(pkg, person.packageName, text));
+            endInteraction();
+        }));
     }
 
     /** Keeps the last 5 commands and what Jarvis did, for the setup report. Words only, never audio. */
@@ -497,6 +574,7 @@ public final class WakeWordService extends Service {
     }
 
     @Override public void onDestroy() {
+        if (instance == this) instance = null;
         stopping = true;
         running = false;
         state = "Off";

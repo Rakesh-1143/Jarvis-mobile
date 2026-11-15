@@ -73,6 +73,7 @@ public final class AppMatcher {
             if (cl.equals(cq)) score = 100;
             else if (l.startsWith(q + " ") || cl.startsWith(cq) && cq.length() >= 4) score = 80;
             else if ((" " + l + " ").contains(" " + q + " ")) score = 70;
+            else if (cq.length() >= 5 && cl.contains(cq)) score = 65; // "hotstar" in "JioHotstar"
             else if (similarity(cq, cl) >= 0.8) score = 60;
             else score = soundsAlike(q, l) ? 50 : 0;
             // Prefer shorter labels on ties ("Maps" over "Maps Go").

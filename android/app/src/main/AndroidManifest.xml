@@ -13,10 +13,17 @@
         <intent><action android:name="android.speech.RecognitionService" /></intent>
         <!-- Lets Jarvis see apps that have an app-drawer icon, so "open WhatsApp" can find them. -->
         <intent><action android:name="android.intent.action.MAIN" /><category android:name="android.intent.category.LAUNCHER" /></intent>
+        <intent><action android:name="android.intent.action.WEB_SEARCH" /></intent>
+        <intent><action android:name="android.intent.action.SEARCH" /></intent>
         <package android:name="com.whatsapp" />
         <package android:name="com.whatsapp.w4b" />
     </queries>
     <application android:allowBackup="false" android:icon="@drawable/kalki_logo" android:roundIcon="@drawable/kalki_logo" android:label="KALKI" android:usesCleartextTraffic="false" android:theme="@style/Theme.Jarvis">
+        <!-- Optional, user-enabled: taps Send in WhatsApp after a spoken "yes". Limited to WhatsApp in its XML. -->
+        <service android:name=".WhatsAppSender" android:exported="true" android:label="@string/whatsapp_sender_label" android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE">
+            <intent-filter><action android:name="android.accessibilityservice.AccessibilityService" /></intent-filter>
+            <meta-data android:name="android.accessibilityservice" android:resource="@xml/whatsapp_sender" />
+        </service>
         <service android:name=".WakeWordService" android:exported="false" android:foregroundServiceType="microphone" />
         <!-- Default digital assistant (user picks it in Android settings). -->
         <service android:name=".JarvisVoiceInteractionService" android:exported="true" android:label="KALKI" android:permission="android.permission.BIND_VOICE_INTERACTION">

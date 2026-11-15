@@ -109,4 +109,39 @@ public class VoiceCommandTest {
         assertTrue(AppMatcher.similarity("whatsapp", "watsapp") >= 0.8);
         assertTrue(AppMatcher.similarity("chrome", "camera") < 0.8);
     }
+
+    private static void search(String said, String app, String query) {
+        VoiceCommand c = VoiceCommand.parse(said);
+        assertEquals(said, VoiceCommand.Type.SEARCH, c.type);
+        assertEquals(said, app, c.target);
+        assertEquals(said, query, c.message);
+    }
+
+    @Test public void parsesSearch() {
+        search("search latest movies on YouTube", "youtube", "latest movies");
+        search("search for latest movies in YouTube", "youtube", "latest movies");
+        search("new latest movies in YouTube", "youtube", "new latest movies");
+        search("play Leo songs on YouTube", "youtube", "leo songs");
+        search("open YouTube and search latest movies", "youtube", "latest movies");
+        search("YouTube search latest movies", "youtube", "latest movies");
+        search("find pizza near me in maps", "maps", "pizza near me");
+        search("search whatsapp web in play store", "play store", "whatsapp web");
+        search("search weather today", "", "weather today");
+        assertEquals(VoiceCommand.Type.OPEN_APP, VoiceCommand.parse("open play store").type);
+        assertEquals(VoiceCommand.Type.OPEN_APP, VoiceCommand.parse("open jio hotstar").type);
+        assertEquals(VoiceCommand.Type.SEND_MESSAGE, VoiceCommand.parse("send message to ravi saying I am in YouTube").type);
+    }
+
+    @Test public void understandsYesAndNo() {
+        for (String y : new String[]{"yes", "Yes.", "yeah", "yes send it", "send it", "okay", "haan", "send"}) assertTrue(y, VoiceCommand.isYes(y));
+        for (String n : new String[]{"no", "don't send", "cancel", "wait", "yes no", "send it to amma", "", "hmm"}) assertFalse(n, VoiceCommand.isYes(n));
+        assertTrue(VoiceCommand.isNo("no don't send"));
+    }
+
+    @Test public void bareAppNames() {
+        java.util.List<AppMatcher.App> apps = new java.util.ArrayList<>(APPS);
+        apps.add(new AppMatcher.App("JioHotstar", "in.startv.hotstar"));
+        assertEquals("in.startv.hotstar", AppMatcher.match("hotstar", apps).packageName);
+        assertEquals("in.startv.hotstar", AppMatcher.match("jio hotstar", apps).packageName);
+    }
 }
