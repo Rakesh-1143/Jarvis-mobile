@@ -9,8 +9,8 @@ import android.widget.Toast;
 
 /**
  * Invisible step between Jarvis and the app it opens. If the phone is locked it asks Android
- * to show the unlock screen first; Jarvis never bypasses the lock. Only opens apps, searches
- * and in-app links (see isAppLaunch).
+ * to show the unlock screen first; Jarvis never bypasses the lock. Only opens the allowed kinds of
+ * screens listed in isAppLaunch.
  */
 public final class LaunchActivity extends Activity {
     @Override protected void onCreate(Bundle state) {
@@ -36,6 +36,12 @@ public final class LaunchActivity extends Activity {
         if (Intent.ACTION_SEARCH.equals(a) || Intent.ACTION_WEB_SEARCH.equals(a)) return i.getData() == null;
         if (Intent.ACTION_VIEW.equals(a) && i.getData() != null)
             return java.util.Arrays.asList("https", "market", "geo", "spotify").contains(i.getData().getScheme());
+        // Calls are placed only after the user said yes to "Call X, Boss?".
+        if ((Intent.ACTION_CALL.equals(a) || Intent.ACTION_DIAL.equals(a)) && i.getData() != null) return "tel".equals(i.getData().getScheme());
+        if (android.provider.AlarmClock.ACTION_SET_ALARM.equals(a) || android.provider.AlarmClock.ACTION_SET_TIMER.equals(a)) return i.getData() == null;
+        if (a != null && (a.startsWith("android.settings.") || Intent.ACTION_POWER_USAGE_SUMMARY.equals(a))) return i.getData() == null;
+        // Text shared into an app the user named ("ask Claude ..."); no files.
+        if (Intent.ACTION_SEND.equals(a)) return i.getPackage() != null && "text/plain".equals(i.getType()) && !i.hasExtra(Intent.EXTRA_STREAM);
         return false;
     }
 

@@ -6,7 +6,8 @@ import java.util.regex.Pattern;
 
 /** Turns recognized words into one allowed action. Pure Java, unit-tested. */
 public final class VoiceCommand {
-    public enum Type { OPEN_APP, SEND_MESSAGE, SEARCH, SCROLL, PLAY_ITEM, MEDIA, BACK, STOP_LISTENING, CANCEL, UNKNOWN }
+    public enum Type { OPEN_APP, SEND_MESSAGE, SEARCH, SCROLL, PLAY_ITEM, MEDIA, BACK, CALL, CALL_CONTROL, TIME, DATE, BATTERY, VOLUME, TORCH, ALARM, TIMER, SETTINGS, ASK_APP,
+        TAP, TYPE, HOME, RECENTS, NOTIFICATIONS, READ_SCREEN, STOP_LISTENING, CANCEL, UNKNOWN }
 
     public final Type type;
     /** For OPEN_APP the app name; for SEND_MESSAGE the person's name; for SEARCH the app ("" = web). */
@@ -77,6 +78,8 @@ public final class VoiceCommand {
             return new VoiceCommand(Type.MEDIA, key);
         }
         if (BACK.matcher(t).matches()) return new VoiceCommand(Type.BACK, "");
+        VoiceCommand d = device(t);
+        if (d != null) return d;
         String w = t.replaceFirst("\\s+(?:on|in|through|via|using)\\s+(?:whatsapp|whats app)$", "");
         // "open WhatsApp (and) send message to Ravi saying hi" -> "send message to Ravi saying hi"
         Matcher m = OPEN_WHATSAPP_THEN.matcher(w);
@@ -120,6 +123,77 @@ public final class VoiceCommand {
     public static boolean isNo(String text) { return NO.matcher(clean(text)).matches(); }
     private static String clean(String text) {
         return text == null ? "" : text.toLowerCase(Locale.ROOT).replaceAll("[.!?,]+", " ").replaceAll("\\s+", " ").trim();
+    }
+
+    // ---------- phone and screen commands ----------
+    private static final Pattern CALL = Pattern.compile("^(?:make\\s+a\\s+)?(?:call|phone|dial|ring)\\s+(?:to\\s+)?(.+?)(?:\\s+(?:on|using)\\s+(?:phone|mobile|sim))?$");
+    private static final Pattern ANSWER = Pattern.compile("^(?:answer|pick up|pickup|accept|attend|receive|lift)(?:\\s+(?:the|this))?(?:\\s+(?:call|phone))?$");
+    private static final Pattern REJECT = Pattern.compile("^(?:reject|decline|ignore)(?:\\s+(?:the|this))?(?:\\s+call)?$");
+    private static final Pattern END_CALL = Pattern.compile("^(?:end|cut|disconnect|stop)(?:\\s+(?:the|this))?\\s+call$|^hang\\s*up(?:\\s+the call)?$");
+    private static final Pattern TIME = Pattern.compile("^(?:what(?:'s|s| is)?\\s+(?:the\\s+)?time(?:\\s+(?:is it|now))?|time(?:\\s+now)?|tell me the time|current time|what time is it(?:\\s+now)?)$");
+    private static final Pattern DATE = Pattern.compile("^(?:what(?:'s|s| is)?\\s+(?:the\\s+|today's\\s+|todays\\s+)?(?:date|day)(?:\\s+today)?|today's date|todays date|what day is (?:it|today)|date)$");
+    private static final Pattern BATTERY = Pattern.compile("^(?:.*\\bbattery\\b.*|how much charge.*|charge level)$");
+    private static final Pattern VOLUME = Pattern.compile("^(?:(?:turn|make)\\s+(?:the\\s+)?)?(?:volume|sound)\\s+(up|down|louder|lower|higher|max|full|maximum|mute|off|on|unmute)$|^(increase|decrease|raise|lower|reduce|mute|unmute)\\s+(?:the\\s+)?(?:volume|sound)$|^(mute|unmute|louder|quieter)$");
+    private static final Pattern TORCH = Pattern.compile("^(?:turn|switch|put)\\s+(on|off)\\s+(?:the\\s+)?(?:torch|flashlight|flash light|flash|light)$|^(?:turn|switch)?\\s*(?:the\\s+)?(?:torch|flashlight|flash light|flash)\\s+(on|off)$");
+    private static final Pattern ALARM = Pattern.compile("^(?:set\\s+(?:an?\\s+|the\\s+)?alarm|wake me up|alarm)\\s+(?:for\\s+|at\\s+)?(?:tomorrow\\s+)?(?:at\\s+)?(\\d{1,2})(?:[:. ](\\d{2}))?\\s*(am|pm|a m|p m|in the morning|in the evening|at night)?(?:\\s+tomorrow)?$");
+    private static final Pattern TIMER = Pattern.compile("^(?:set\\s+(?:an?\\s+)?)?timer\\s+(?:for\\s+)?(\\d+)\\s*(seconds?|secs?|minutes?|mins?|hours?|hrs?)$|^(?:set\\s+(?:an?\\s+)?)?(\\d+)\\s*(seconds?|minutes?|mins?|hours?)\\s+timer$");
+    private static final Pattern SETTINGS = Pattern.compile("^(?:open|show|go to)\\s+(?:the\\s+)?(wifi|wi-fi|wi fi|bluetooth|mobile data|data|hotspot|location|gps|display|brightness|sound|battery|apps|app|notification|notifications|storage|security|date and time|airplane mode|flight mode)\\s+settings?$|^(?:turn|switch)\\s+(?:on|off)\\s+(wifi|wi-fi|wi fi|bluetooth|mobile data|hotspot|location|gps|airplane mode|flight mode)$");
+    private static final Pattern ASK_APP = Pattern.compile("^(?:ask|tell|message)\\s+(claude|cloud|chatgpt|chat gpt|gemini|meta ai|perplexity|copilot)\\s+(?:to\\s+|that\\s+|about\\s+)?(.+)$");
+    private static final Pattern TAP = Pattern.compile("^(?:tap|click|press|touch|hit)\\s+(?:on\\s+)?(?:the\\s+)?(.+?)(?:\\s+(?:button|icon|option|tab|link))?$");
+    private static final Pattern TYPE = Pattern.compile("^(?:type|enter)\\s+(.+)$");
+    private static final Pattern HOME = Pattern.compile("^(?:go\\s+(?:to\\s+)?)?home(?:\\s+screen)?$|^(?:go to|show)\\s+(?:the\\s+)?home\\s+screen$|^minimi[sz]e(?:\\s+(?:this|the app|app))?$");
+    private static final Pattern RECENTS = Pattern.compile("^(?:show\\s+|open\\s+)?(?:the\\s+)?recent(?:s| apps)?$");
+    private static final Pattern NOTIFS = Pattern.compile("^(?:open|show|pull down)\\s+(?:my\\s+|the\\s+)?notifications?(?:\\s+panel)?$");
+    private static final Pattern READ = Pattern.compile("^(?:read|read out)\\s+(?:the\\s+|this\\s+)?screen$|^what(?:'s|s| is)\\s+on\\s+(?:the\\s+|my\\s+)?screen$|^read (?:it|this)$");
+
+    private static VoiceCommand device(String t) {
+        Matcher m;
+        if (ANSWER.matcher(t).matches()) return new VoiceCommand(Type.CALL_CONTROL, "answer");
+        if (REJECT.matcher(t).matches()) return new VoiceCommand(Type.CALL_CONTROL, "reject");
+        if (END_CALL.matcher(t).matches()) return new VoiceCommand(Type.CALL_CONTROL, "end");
+        if (TIME.matcher(t).matches()) return new VoiceCommand(Type.TIME, "");
+        if (DATE.matcher(t).matches()) return new VoiceCommand(Type.DATE, "");
+        m = VOLUME.matcher(t);
+        if (m.matches()) {
+            String v = m.group(1) != null ? m.group(1) : m.group(2) != null ? m.group(2) : m.group(3);
+            String a = v.matches("up|louder|higher|increase|raise|on") ? "up" : v.matches("down|lower|decrease|reduce|quieter") ? "down"
+                    : v.matches("max|full|maximum") ? "max" : v.equals("unmute") ? "unmute" : "mute";
+            return new VoiceCommand(Type.VOLUME, a);
+        }
+        m = TORCH.matcher(t);
+        if (m.matches()) return new VoiceCommand(Type.TORCH, m.group(1) != null ? m.group(1) : m.group(2));
+        m = ALARM.matcher(t);
+        if (m.matches()) {
+            int h = Integer.parseInt(m.group(1)), min = m.group(2) == null ? 0 : Integer.parseInt(m.group(2));
+            String ap = m.group(3) == null ? "" : m.group(3);
+            if (ap.startsWith("p") || ap.contains("evening") || ap.contains("night")) { if (h < 12) h += 12; }
+            else if (ap.startsWith("a") || ap.contains("morning")) { if (h == 12) h = 0; }
+            if (h > 23 || min > 59) return null;
+            return new VoiceCommand(Type.ALARM, String.format(Locale.ROOT, "%02d:%02d", h, min));
+        }
+        m = TIMER.matcher(t);
+        if (m.matches()) {
+            int n = Integer.parseInt(m.group(1) != null ? m.group(1) : m.group(3));
+            String u = m.group(2) != null ? m.group(2) : m.group(4);
+            int secs = u.startsWith("h") ? n * 3600 : u.startsWith("m") ? n * 60 : n;
+            return new VoiceCommand(Type.TIMER, String.valueOf(secs));
+        }
+        m = SETTINGS.matcher(t);
+        if (m.matches()) return new VoiceCommand(Type.SETTINGS, (m.group(1) != null ? m.group(1) : m.group(2)).replace("wi-fi", "wifi").replace("wi fi", "wifi"));
+        if (BATTERY.matcher(t).matches()) return new VoiceCommand(Type.BATTERY, "");
+        m = ASK_APP.matcher(t);
+        if (m.matches()) return new VoiceCommand(Type.ASK_APP, m.group(1).equals("cloud") ? "claude" : m.group(1), m.group(2).trim());
+        if (HOME.matcher(t).matches()) return new VoiceCommand(Type.HOME, "");
+        if (RECENTS.matcher(t).matches()) return new VoiceCommand(Type.RECENTS, "");
+        if (NOTIFS.matcher(t).matches()) return new VoiceCommand(Type.NOTIFICATIONS, "");
+        if (READ.matcher(t).matches()) return new VoiceCommand(Type.READ_SCREEN, "");
+        m = TYPE.matcher(t);
+        if (m.matches()) return new VoiceCommand(Type.TYPE, "", m.group(1).trim());
+        m = TAP.matcher(t);
+        if (m.matches()) return new VoiceCommand(Type.TAP, m.group(1).trim());
+        m = CALL.matcher(t);
+        if (m.matches() && !m.group(1).matches("(?:me|back|later)")) return new VoiceCommand(Type.CALL, m.group(1).trim());
+        return null;
     }
 
     /** "second" -> 2; missing or "this/top" -> 1. */

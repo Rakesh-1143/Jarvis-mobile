@@ -43,8 +43,13 @@ public final class WhatsAppSender extends AccessibilityService {
     @Override public boolean onUnbind(android.content.Intent i) { if (instance == this) instance = null; return super.onUnbind(i); }
     @Override public void onDestroy() { if (instance == this) instance = null; super.onDestroy(); }
 
+    /** Money apps Jarvis never touches (banking, UPI, wallets, trading). */
+    private static final Pattern BLOCKED = Pattern.compile("(?i).*(bank|upi|paytm|phonepe|paisa|nbu\\.|wallet|mobikwik|dreamplug|freecharge|bhim|npci|sbi|hdfc|icici|axis|kotak|zerodha|groww|upstox|angelbroking|trading|finance|loan|insurance|authenticator|password|keepass|bitwarden|1password|lastpass|\\.pay\\b|pay$).*");
+
+    static boolean blocked(CharSequence pkg) { return pkg == null || BLOCKED.matcher(pkg).matches(); }
+
     private static boolean allowedPkg(CharSequence p) {
-        return p != null && (YOUTUBE.contentEquals(p) || java.util.Arrays.asList(Contacts.WHATSAPP).contains(p.toString()));
+        return p != null && !blocked(p) && !"com.android.systemui".contentEquals(p);
     }
 
     /**
@@ -155,9 +160,104 @@ public final class WhatsAppSender extends AccessibilityService {
         return best;
     }
 
+    // ---------- any-screen control ----------
+
+    /** Taps the visible item whose text or label best matches the spoken words. Returns its label or null. */
+    static String tap(String spoken) {
+        WhatsAppSender s = instance;
+        if (s == null) return null;
+        AccessibilityNodeInfo root = s.appRoot();
+        if (root == null) return null;
+        String q = AppMatcher.norm(spoken);
+        AccessibilityNodeInfo[] best = {null};
+        int[] bestScore = {0};
+        findLabel(root, q, best, bestScore, 0);
+        AccessibilityNodeInfo n = best[0];
+        if (n == null) return null;
+        String label = label(n);
+        AccessibilityNodeInfo t = n;
+        while (t != null && !t.isClickable()) t = t.getParent();
+        if (t != null && t.performAction(AccessibilityNodeInfo.ACTION_CLICK)) return label;
+        Rect r = new Rect(); n.getBoundsInScreen(r);
+        Path p = new Path(); p.moveTo(r.centerX(), r.centerY());
+        return s.dispatchGesture(new GestureDescription.Builder().addStroke(new GestureDescription.StrokeDescription(p, 0, 60)).build(), null, null) ? label : null;
+    }
+
+    private static String label(AccessibilityNodeInfo n) {
+        CharSequence t = n.getText() != null && n.getText().length() > 0 ? n.getText() : n.getContentDescription();
+        return t == null ? "" : t.toString();
+    }
+
+    private static void findLabel(AccessibilityNodeInfo n, String q, AccessibilityNodeInfo[] best, int[] bestScore, int depth) {
+        if (n == null || depth > 40) return;
+        if (n.isVisibleToUser() && !n.isPassword()) {
+            String l = AppMatcher.norm(label(n));
+            if (!l.isEmpty()) {
+                int sc = l.equals(q) ? 100 : l.startsWith(q + " ") || l.startsWith(q) && q.length() >= 4 ? 80
+                        : (" " + l + " ").contains(" " + q + " ") ? 60 : AppMatcher.similarity(l.replace(" ", ""), q.replace(" ", "")) >= 0.8 ? 50 : 0;
+                if (sc > 0 && l.length() > 120) sc -= 20; // long text blocks rank below buttons
+                if (sc > bestScore[0]) { bestScore[0] = sc; best[0] = n; }
+            }
+        }
+        for (int i = 0; i < n.getChildCount(); i++) findLabel(n.getChild(i), q, best, bestScore, depth + 1);
+    }
+
+    /** Types into the focused text box (or the first one on screen). Never into password boxes. */
+    static String type(String text) {
+        WhatsAppSender s = instance;
+        if (s == null) return "off";
+        AccessibilityNodeInfo root = s.appRoot();
+        if (root == null) return "blocked";
+        AccessibilityNodeInfo box = root.findFocus(AccessibilityNodeInfo.FOCUS_INPUT);
+        if (box == null || !box.isEditable()) box = firstEditable(root, 0);
+        if (box == null) return "none";
+        if (box.isPassword()) return "password";
+        CharSequence old = box.getText();
+        String now = old == null || box.isShowingHintText() || old.length() == 0 ? text : old + " " + text;
+        android.os.Bundle b = new android.os.Bundle();
+        b.putCharSequence(AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE, now);
+        box.performAction(AccessibilityNodeInfo.ACTION_FOCUS);
+        return box.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, b) ? "ok" : "failed";
+    }
+
+    private static AccessibilityNodeInfo firstEditable(AccessibilityNodeInfo n, int depth) {
+        if (n == null || depth > 40) return null;
+        if (n.isEditable() && n.isVisibleToUser()) return n;
+        for (int i = 0; i < n.getChildCount(); i++) { AccessibilityNodeInfo r = firstEditable(n.getChild(i), depth + 1); if (r != null) return r; }
+        return null;
+    }
+
+    /** Short spoken summary of the visible text on screen (no password boxes). */
+    static String readScreen() {
+        WhatsAppSender s = instance;
+        if (s == null) return null;
+        AccessibilityNodeInfo root = s.appRoot();
+        if (root == null) return null;
+        List<String> out = new ArrayList<>();
+        collectText(root, out, 0);
+        StringBuilder b = new StringBuilder();
+        for (String t : out) { if (b.length() + t.length() > 600) break; b.append(t).append(". "); }
+        return b.toString().trim();
+    }
+
+    private static void collectText(AccessibilityNodeInfo n, List<String> out, int depth) {
+        if (n == null || depth > 40 || out.size() > 40) return;
+        if (n.isVisibleToUser() && !n.isPassword() && n.getText() != null) {
+            String t = n.getText().toString().trim();
+            if (t.length() > 1 && !out.contains(t)) out.add(t);
+        }
+        for (int i = 0; i < n.getChildCount(); i++) collectText(n.getChild(i), out, depth + 1);
+    }
+
+    /** Home, recent apps, notifications. These work on any screen. */
+    static boolean global(int action) {
+        WhatsAppSender s = instance;
+        return s != null && s.performGlobalAction(action);
+    }
+
     static boolean back() {
         WhatsAppSender s = instance;
-        return s != null && foregroundApp() != null && s.performGlobalAction(GLOBAL_ACTION_BACK);
+        return s != null && s.performGlobalAction(GLOBAL_ACTION_BACK);
     }
 
     static void arm(String pkg, String text) {

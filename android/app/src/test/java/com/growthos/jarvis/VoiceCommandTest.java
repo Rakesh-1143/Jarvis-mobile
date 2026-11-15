@@ -191,4 +191,51 @@ public class VoiceCommandTest {
         search("play Leo songs on YouTube", "youtube", "leo songs");
         assertEquals(VoiceCommand.Type.OPEN_APP, VoiceCommand.parse("open YouTube").type);
     }
+
+    @Test public void parsesPhoneAndScreenCommands() {
+        is("call Ravi", VoiceCommand.Type.CALL, "ravi");
+        is("can you call amma", VoiceCommand.Type.CALL, "amma");
+        is("dial 98765 43210", VoiceCommand.Type.CALL, "98765 43210");
+        is("answer the call", VoiceCommand.Type.CALL_CONTROL, "answer");
+        is("pick up", VoiceCommand.Type.CALL_CONTROL, "answer");
+        is("reject call", VoiceCommand.Type.CALL_CONTROL, "reject");
+        is("end call", VoiceCommand.Type.CALL_CONTROL, "end");
+        is("hang up", VoiceCommand.Type.CALL_CONTROL, "end");
+        is("what time is it", VoiceCommand.Type.TIME, "");
+        is("what's the date today", VoiceCommand.Type.DATE, "");
+        is("how much battery is left", VoiceCommand.Type.BATTERY, "");
+        is("volume up", VoiceCommand.Type.VOLUME, "up");
+        is("decrease the volume", VoiceCommand.Type.VOLUME, "down");
+        is("mute", VoiceCommand.Type.VOLUME, "mute");
+        is("turn on the torch", VoiceCommand.Type.TORCH, "on");
+        is("flashlight off", VoiceCommand.Type.TORCH, "off");
+        is("set alarm for 6 am", VoiceCommand.Type.ALARM, "06:00");
+        is("set an alarm at 6:30 pm", VoiceCommand.Type.ALARM, "18:30");
+        is("wake me up at 7 30", VoiceCommand.Type.ALARM, "07:30");
+        is("set timer for 10 minutes", VoiceCommand.Type.TIMER, "600");
+        is("5 minute timer", VoiceCommand.Type.TIMER, "300");
+        is("open wifi settings", VoiceCommand.Type.SETTINGS, "wifi");
+        is("turn on bluetooth", VoiceCommand.Type.SETTINGS, "bluetooth");
+        is("open battery settings", VoiceCommand.Type.SETTINGS, "battery");
+        is("go home", VoiceCommand.Type.HOME, "");
+        is("show recent apps", VoiceCommand.Type.RECENTS, "");
+        is("open notifications", VoiceCommand.Type.NOTIFICATIONS, "");
+        is("read the screen", VoiceCommand.Type.READ_SCREEN, "");
+        is("tap search", VoiceCommand.Type.TAP, "search");
+        is("click on the like button", VoiceCommand.Type.TAP, "like");
+        VoiceCommand t = VoiceCommand.parse("type good morning");
+        assertEquals(VoiceCommand.Type.TYPE, t.type);
+        assertEquals("good morning", t.message);
+        VoiceCommand a = VoiceCommand.parse("ask Claude what is the capital of France");
+        assertEquals(VoiceCommand.Type.ASK_APP, a.type);
+        assertEquals("claude", a.target);
+        assertEquals("what is the capital of france", a.message);
+        assertEquals("claude", VoiceCommand.parse("ask cloud to write a poem").target);
+        // Older commands still work.
+        is("tell amma that I am coming", VoiceCommand.Type.SEND_MESSAGE, "amma");
+        is("open WhatsApp", VoiceCommand.Type.OPEN_APP, "whatsapp");
+        is("play the second video", VoiceCommand.Type.PLAY_ITEM, "2");
+        is("pause", VoiceCommand.Type.MEDIA, "pause");
+        send("write message to ravi saying hi", "ravi", "hi");
+    }
 }

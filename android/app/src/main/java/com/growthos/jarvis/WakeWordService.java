@@ -414,7 +414,7 @@ public final class WakeWordService extends Service {
                 if (!WhatsAppSender.running()) { remember(heard, "scroll: Jarvis control is off"); say("Boss, turn on Jarvis control in Jarvis setup so I can scroll.", this::endInteraction); return; }
                 boolean ok = WhatsAppSender.scroll(down);
                 remember(heard, ok ? "scrolled " + c.target : "could not scroll; screen: " + WhatsAppSender.describeScreen());
-                if (ok) endInteraction(); else say("Boss, I can scroll only in YouTube and WhatsApp.", this::endInteraction);
+                if (ok) endInteraction(); else say("Boss, I can't scroll here.", this::endInteraction);
                 return;
             }
             case PLAY_ITEM: {
@@ -441,12 +441,90 @@ public final class WakeWordService extends Service {
                 endInteraction();
                 return;
             }
-            case BACK: {
-                boolean ok = WhatsAppSender.back();
-                remember(heard, ok ? "went back" : "back: works only in YouTube and WhatsApp with Jarvis control on");
-                if (ok) endInteraction(); else say("Boss, I can go back only in YouTube and WhatsApp, with Jarvis control on.", this::endInteraction);
+            case BACK: case HOME: case RECENTS: case NOTIFICATIONS: {
+                if (!WhatsAppSender.running()) { remember(heard, "Jarvis control is off"); say(CONTROL_OFF, this::endInteraction); return; }
+                int g = c.type == VoiceCommand.Type.BACK ? android.accessibilityservice.AccessibilityService.GLOBAL_ACTION_BACK
+                        : c.type == VoiceCommand.Type.HOME ? android.accessibilityservice.AccessibilityService.GLOBAL_ACTION_HOME
+                        : c.type == VoiceCommand.Type.RECENTS ? android.accessibilityservice.AccessibilityService.GLOBAL_ACTION_RECENTS
+                        : android.accessibilityservice.AccessibilityService.GLOBAL_ACTION_NOTIFICATIONS;
+                boolean ok = WhatsAppSender.global(g);
+                remember(heard, ok ? "done: " + c.type : "failed: " + c.type);
+                endInteraction();
                 return;
             }
+            case TAP: {
+                if (!WhatsAppSender.running()) { remember(heard, "Jarvis control is off"); say(CONTROL_OFF, this::endInteraction); return; }
+                String label = WhatsAppSender.tap(c.target);
+                remember(heard, label == null ? "nothing called '" + c.target + "' on screen; screen: " + WhatsAppSender.describeScreen() : "tapped " + label);
+                if (label == null) say("Boss, I can't find " + c.target + " on the screen.", this::endInteraction); else endInteraction();
+                return;
+            }
+            case TYPE: {
+                if (!WhatsAppSender.running()) { remember(heard, "Jarvis control is off"); say(CONTROL_OFF, this::endInteraction); return; }
+                String r = WhatsAppSender.type(c.message);
+                remember(heard, "type: " + r);
+                switch (r) {
+                    case "ok": endInteraction(); break;
+                    case "password": say("Boss, I don't type into password boxes.", this::endInteraction); break;
+                    case "none": say("Boss, there is no text box on the screen. Say tap search first.", this::endInteraction); break;
+                    case "blocked": say("Boss, I don't control this app.", this::endInteraction); break;
+                    default: say("Boss, I couldn't type there.", this::endInteraction);
+                }
+                return;
+            }
+            case READ_SCREEN: {
+                if (!WhatsAppSender.running()) { remember(heard, "Jarvis control is off"); say(CONTROL_OFF, this::endInteraction); return; }
+                String seen = WhatsAppSender.readScreen();
+                remember(heard, seen == null ? "read: app not allowed" : "read screen");
+                say(seen == null ? "Boss, I don't read this app." : seen.isEmpty() ? "Boss, I see no text on the screen." : seen, this::endInteraction);
+                return;
+            }
+            case TIME: remember(heard, "time"); say(PhoneActions.time(), this::endInteraction); return;
+            case DATE: remember(heard, "date"); say(PhoneActions.date(), this::endInteraction); return;
+            case BATTERY: remember(heard, "battery"); say(PhoneActions.battery(this), this::endInteraction); return;
+            case VOLUME: { String r = PhoneActions.volume(this, c.target); remember(heard, "volume " + c.target); say(r, this::endInteraction); return; }
+            case TORCH: { String r = PhoneActions.torch(this, "on".equals(c.target)); remember(heard, r); say(r, this::endInteraction); return; }
+            case ALARM: {
+                String[] hm = c.target.split(":");
+                int h = Integer.parseInt(hm[0]), mi = Integer.parseInt(hm[1]);
+                String when = String.format(java.util.Locale.ENGLISH, "%d:%02d %s", h % 12 == 0 ? 12 : h % 12, mi, h < 12 ? "AM" : "PM");
+                remember(heard, "alarm " + when);
+                say("Alarm set for " + when + ", Boss.", () -> { AppOpener.open(this, PhoneActions.alarm(h, mi)); endInteraction(); });
+                return;
+            }
+            case TIMER: {
+                int secs = Integer.parseInt(c.target);
+                String len = secs % 3600 == 0 ? secs / 3600 + " hour" + (secs == 3600 ? "" : "s") : secs % 60 == 0 ? secs / 60 + " minute" + (secs == 60 ? "" : "s") : secs + " seconds";
+                remember(heard, "timer " + len);
+                say("Timer for " + len + ", Boss.", () -> { AppOpener.open(this, PhoneActions.timer(secs)); endInteraction(); });
+                return;
+            }
+            case SETTINGS: {
+                final String page = c.target;
+                remember(heard, "settings " + page);
+                boolean toggle = heard.toLowerCase(java.util.Locale.ROOT).matches(".*\\b(turn|switch)\\b.*");
+                say(toggle ? "Boss, Android doesn't let apps switch " + c.target + " by themselves. Opening its settings." : "Opening " + c.target + " settings.",
+                        () -> { AppOpener.open(this, PhoneActions.settings(page)); endInteraction(); });
+                return;
+            }
+            case ASK_APP: {
+                AppMatcher.App ai = AppMatcher.match(c.target, apps == null ? launcherApps() : apps);
+                if (ai == null) { remember(heard, c.target + " not installed"); say("Boss, " + c.target + " is not installed.", this::endInteraction); return; }
+                Intent share = PhoneActions.shareText(ai.packageName, c.message);
+                if (getPackageManager().resolveActivity(share, 0) == null) { remember(heard, ai.label + " can't take text"); say("Boss, " + ai.label + " doesn't accept questions from other apps.", this::endInteraction); return; }
+                remember(heard, "asked " + ai.label + ": " + c.message);
+                say("Asking " + ai.label + ".", () -> { AppOpener.open(this, share); endInteraction(); });
+                return;
+            }
+            case CALL_CONTROL: {
+                String r = PhoneActions.callControl(this, c.target);
+                remember(heard, "call " + c.target + (r == null ? "" : ": " + r));
+                if (r == null) endInteraction(); else say(r, this::endInteraction);
+                return;
+            }
+            case CALL:
+                callSomeone(heard, c.target);
+                return;
             case SEARCH: {
                 // "search latest movies" while YouTube is open searches YouTube.
                 String fg = WhatsAppSender.foregroundApp();
@@ -495,7 +573,7 @@ public final class WakeWordService extends Service {
                     }
                 }
                 remember(heard, heard.isEmpty() ? "nothing understood" : "not a known command");
-                say(heard.isEmpty() ? "Sorry Boss, I didn't catch that." : "Boss, I can open apps, search apps like YouTube, and send WhatsApp messages. That one I can't do yet.", this::endInteraction);
+                say(heard.isEmpty() ? "Sorry Boss, I didn't catch that." : "Boss, I can't do that one yet. Try open, search, call, message, tap, type, scroll, or ask Claude.", this::endInteraction);
             }
         }
     }
@@ -553,6 +631,32 @@ public final class WakeWordService extends Service {
             remember(heard, "sending to " + person.label + ": " + text);
             WhatsAppSender.arm(pkg, text);
             AppOpener.open(this, Contacts.whatsappChat(pkg, person.packageName, text));
+            endInteraction();
+        }));
+    }
+
+    private static final String CONTROL_OFF = "Boss, turn on Jarvis control in Jarvis setup first.";
+
+    /** "call Ravi" or "call 98765 43210": confirms by voice, then calls (or opens the dialer without the permission). */
+    private void callSomeone(String heard, String who) {
+        String digits = who.replaceAll("[^0-9+]", "");
+        String name;
+        String number;
+        if (digits.replace("+", "").length() >= 3 && who.replaceAll("[0-9+\\s-]", "").isEmpty()) { number = digits; name = who; }
+        else {
+            if (!Contacts.allowed(this)) { remember(heard, "contacts permission needed"); say("Boss, please allow contacts in Jarvis setup.", this::endInteraction); return; }
+            AppMatcher.App p = AppMatcher.matchName(who, Contacts.withNumbers(this));
+            if (p == null) { remember(heard, "contact not found: " + who); say("Boss, I couldn't find " + who + " in your contacts.", this::endInteraction); return; }
+            name = p.label; number = p.packageName;
+        }
+        final String n = number, label = name;
+        say("Call " + label + ", Boss?", () -> listen(r -> {
+            boolean yes = false;
+            for (String g : r) if (g != null && (VoiceCommand.isYes(g) || g.trim().toLowerCase(java.util.Locale.ROOT).matches("(?:yes\\s+)?call(?:\\s+(?:him|her|them|it|now))?"))) { yes = true; break; }
+            if (!yes) { remember(heard, "call to " + label + " cancelled"); say("Okay Boss, not calling.", this::endInteraction); return; }
+            boolean direct = PhoneActions.canCall(this);
+            remember(heard, (direct ? "calling " : "dialer opened for ") + label);
+            AppOpener.open(this, PhoneActions.call(this, n));
             endInteraction();
         }));
     }

@@ -162,10 +162,14 @@ public final class AssistantSetupActivity extends Activity {
         boolean contacts = Contacts.allowed(this);
         row("Contacts permission (for \"send message to …\")", contacts ? "Allowed · names are read on the phone only" : "Not allowed", contacts);
         if (!contacts) button("Allow contacts", v -> requestPermissions(new String[]{Manifest.permission.READ_CONTACTS}, CONTACTS_REQUEST));
+        boolean calls = checkSelfPermission(Manifest.permission.CALL_PHONE) == PackageManager.PERMISSION_GRANTED
+                && checkSelfPermission(Manifest.permission.ANSWER_PHONE_CALLS) == PackageManager.PERMISSION_GRANTED;
+        row("Phone calls (for \"call …\", \"answer\", \"end call\")", calls ? "Allowed · Jarvis asks before every call" : "Not allowed · Jarvis opens the dialer instead", calls);
+        if (!calls) button("Allow phone calls", v -> requestPermissions(new String[]{Manifest.permission.CALL_PHONE, Manifest.permission.ANSWER_PHONE_CALLS}, CONTACTS_REQUEST + 1));
         boolean sender = WhatsAppSender.isOn(this);
-        row("Jarvis control (accessibility, WhatsApp + YouTube only)", sender ? "On · WhatsApp sends only after you say yes; YouTube scroll and play" : "Off · you tap Send yourself; no YouTube scroll/play", sender);
+        row("Jarvis control (accessibility)", sender ? "On · tap, type, scroll in apps; never money apps or password boxes; WhatsApp sends only after you say yes" : "Off · no tapping, typing or scrolling by voice", sender);
         button(sender ? "Turn off Jarvis control" : "Turn on Jarvis control", v -> {
-            Toast.makeText(this, "Tap \"Jarvis control (WhatsApp, YouTube)\" (it may be under Installed apps or Downloaded apps)", Toast.LENGTH_LONG).show();
+            Toast.makeText(this, "Tap \"Jarvis control\" (it may be under Installed apps or Downloaded apps)", Toast.LENGTH_LONG).show();
             try { startActivity(new Intent(android.provider.Settings.ACTION_ACCESSIBILITY_SETTINGS)); } catch (Exception ignored) { }
         });
         row("Background listening service", WakeWordService.running ? "Running" : "Not running", null);
