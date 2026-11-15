@@ -13,7 +13,9 @@ final class AppOpener {
     static final String EXTRA_TARGET = "jarvis_target";
 
     static void open(Context c, Intent target) {
-        target.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_RESET_TASK_IF_NEEDED);
+        // RESET_TASK_IF_NEEDED only for "open app": for a search or link it would just bring the app's
+        // old screen to the front and drop the search.
+        target.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | (Intent.ACTION_MAIN.equals(target.getAction()) ? Intent.FLAG_ACTIVITY_RESET_TASK_IF_NEEDED : 0));
         JarvisVoiceInteractionService vis = JarvisVoiceInteractionService.instance;
         if (vis != null) {
             Bundle b = new Bundle();

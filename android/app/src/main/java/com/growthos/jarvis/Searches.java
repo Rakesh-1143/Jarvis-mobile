@@ -21,8 +21,9 @@ final class Searches {
         }
         switch (pkg) {
             case YOUTUBE: {
-                Intent i = new Intent(Intent.ACTION_SEARCH).setPackage(YOUTUBE).putExtra(SearchManager.QUERY, q);
-                return resolves(c, i) ? i : view("https://www.youtube.com/results?search_query=" + e, YOUTUBE);
+                // YouTube opens its search results page for this link.
+                Intent i = view("https://www.youtube.com/results?search_query=" + e, YOUTUBE);
+                return resolves(c, i) ? i : new Intent(Intent.ACTION_SEARCH).setPackage(YOUTUBE).putExtra(SearchManager.QUERY, q);
             }
             case PLAY: return view("market://search?q=" + e + "&c=apps", PLAY);
             case MAPS: return view("geo:0,0?q=" + e, MAPS);
