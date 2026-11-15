@@ -115,6 +115,10 @@ public final class AssistantSetupActivity extends Activity {
         boolean trained = trainedAt > 0 && TemplateMatcher.file(this).exists();
         row("Your voice", trained ? "Trained for \"" + sp.getString(WakeWordService.KEY_PHRASE, "Hey Jarvis") + "\" on " + time(trainedAt) : "Not trained yet (recommended: Jarvis then wakes for your voice and accent)", trained);
         button(trained ? "Train my voice again" : "Train my voice", v -> startActivity(new Intent(this, VoiceTrainingActivity.class)));
+        java.io.File[] recs = VoiceRecordActivity.dir(this).listFiles();
+        int recCount = recs == null ? 0 : recs.length;
+        row("Jarvis speaking in your voice (step 1: record)", recCount == 0 ? "Not started · read about 140 sentences (30 min); recorded only on that screen" : recCount + " sentences recorded · stored on this phone until you export", recCount >= 100 ? Boolean.TRUE : null);
+        button(recCount == 0 ? "Record my voice for Jarvis" : "Continue recording my voice", v -> startActivity(new Intent(this, VoiceRecordActivity.class)));
         if (trained) button("Delete my voice training", v -> {
             TemplateMatcher.file(this).delete();
             sp.edit().remove(WakeWordService.KEY_TRAINED_AT).remove(WakeWordService.KEY_PHRASE).apply();

@@ -46,6 +46,7 @@
         <service android:name=".JarvisRecognitionService" android:exported="true" android:label="KALKI">
             <intent-filter><action android:name="android.speech.RecognitionService" /><category android:name="android.intent.category.DEFAULT" /></intent-filter>
         </service>
+        <activity android:name=".VoiceRecordActivity" android:exported="false" android:label="Record my voice" android:screenOrientation="portrait" />
         <activity android:name=".VoiceTrainingActivity" android:exported="false" android:label="Train my voice" android:screenOrientation="portrait" />
         <activity android:name=".LaunchActivity" android:exported="false" android:excludeFromRecents="true" android:noHistory="true" android:theme="@android:style/Theme.Translucent.NoTitleBar" />
         <receiver android:name=".BootReceiver" android:exported="true">
