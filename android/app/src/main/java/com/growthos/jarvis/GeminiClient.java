@@ -169,46 +169,79 @@ final class GeminiClient {
         return b.toString();
     }
 
-    static final String BRAIN = "You are the understanding part of KALKI (Jarvis), a voice assistant on an Android phone in India. "
-            + "You get what the speech recognizer heard (several guesses, best first; they may have mistakes, Indian accent, Telugu or Teluglish words) "
-            + "and the names of installed apps. Work out what the user wants and reply with ONE JSON object only: "
-            + "{\"action\":\"...\",\"target\":\"...\",\"message\":\"...\",\"answer\":\"...\"}. Use \"\" for unused fields.\n"
+    static final String BRAIN = "You are the brain of KALKI (Jarvis), a smart voice assistant on an Android phone in India. "
+            + "You get what the speech recognizer heard (up to 3 guesses, best first; expect mistakes, Indian accent, Telugu, Hindi or Teluglish words), "
+            + "the time, the app on screen, installed app names, and facts the user asked you to remember. "
+            + "Work out what the user really wants and reply with ONE JSON object only:\n"
+            + "{\"actions\":[{\"action\":\"...\",\"target\":\"...\",\"message\":\"...\"}],\"answer\":\"...\",\"live\":false}\n"
+            + "actions: 0 to 3 steps, run in order (for example 'set alarm at 6 and turn on torch' = 2 steps). Use \"\" for unused fields. "
+            + "answer: what to say. With no actions it is the full spoken reply. With actions leave it \"\" (each action speaks for itself).\n"
+            + "live: true only when the answer needs fresh facts from the internet (news, scores, prices, today's events, opening hours).\n"
             + "Allowed actions and fields:\n"
             + "OPEN_APP target=exact app name from the list. SEARCH target=app name or \"\" for web, message=what to search. "
             + "SEND_MESSAGE target=person name, message=text to send (WhatsApp). WHATSAPP_CALL target=person, message=voice|video. "
-            + "CALL target=person name or phone number (normal phone call). CALL_CONTROL target=answer|reject|end. "
+            + "CALL target=person name or phone number. CALL_BACK (call the last caller). CALL_CONTROL target=answer|reject|end. MISSED_CALLS. "
             + "ASK_APP target=claude|chatgpt|gemini|perplexity|copilot, message=question (only when the user names that app). "
             + "SCROLL target=down|up. PLAY_ITEM target=1-6 (which video/result on screen). MEDIA target=play|pause|next|previous. "
-            + "TAP target=visible button or text to tap. TYPE message=text to type. BACK, HOME, RECENTS, NOTIFICATIONS (open the shade), READ_SCREEN. "
-            + "TIME, DATE, BATTERY. VOLUME target=up|down|mute|unmute|max. TORCH target=on|off. "
+            + "TAP target=visible button or text. TYPE message=text. BACK, HOME, RECENTS, NOTIFICATIONS (open the shade), READ_SCREEN, SCREENSHOT, LOCK. "
+            + "TIME, DATE, BATTERY, BRIEFING (summary of the day), NEXT_ALARM, CALENDAR target=today|tomorrow. "
+            + "VOLUME target=up|down|mute|unmute|max. TORCH target=on|off. DND target=on|off (Do Not Disturb). RINGER target=silent|vibrate|normal. "
             + "SETTINGS target=wifi|bluetooth|mobile data|hotspot|location|display|sound|battery|apps|storage|security|date and time|airplane mode. "
             + "ALARM target=HH:MM 24-hour. TIMER target=seconds. REMINDER target=HH:MM 24-hour or +seconds from now, message=what to remind. "
-            + "READ_NOTIFICATIONS target=app name or \"\". NOTE message=text to save. READ_NOTES. CLEAR_NOTES. NAVIGATE target=place. "
-            + "WEATHER target=city or \"\". PHOTO target=photo|selfie. SET_NAME target=what to call the user (message=city to set the weather city instead). "
-            + "SPEECH_SPEED target=faster|slower|normal. HELP. STOP_LISTENING. CANCEL. REPEAT (say your last reply again). SCREENSHOT. LOCK (lock the phone).\n"
-            + "ANSWER answer=1 to 3 short spoken sentences, plain text: use it for questions, chat, maths or facts, and when the request is not one of the actions "
-            + "(say briefly what you can't do). Never invent an action or claim you did something. If you don't know a live fact, say so.\n"
-            + "Rules: pick the guess that makes most sense. Fix misheard app names to the closest installed app (cloud=Claude, what's up=WhatsApp, you tube=YouTube). "
-            + "Never choose banking, UPI, payment or password apps. Keep message text in the user's own words and language. "
-            + "Times: 'morning 7' = 07:00, 'evening 6' = 18:00, 'night 9' = 21:00. "
-            + "If an app is open on screen, words like 'search X', 'scroll', 'play the first one', 'tap X' are about that app. "
-            + "If it is unclear, use ANSWER to ask one short question. The user is called %s; address them that way in answers.";
+            + "CALCULATE message=maths using digits and + - * / ^ ( ) (for sums only). "
+            + "READ_NOTIFICATIONS target=app name or \"\". NOTE message=text to save. READ_NOTES. CLEAR_NOTES. "
+            + "REMEMBER message=a fact about the user to keep (never passwords, PINs, OTPs or bank details). FORGET target=words of the fact, or everything. READ_MEMORY. "
+            + "NAVIGATE target=place. WEATHER target=city or \"\". PHOTO target=photo|selfie. SET_NAME target=what to call the user (message=city to set the weather city instead). "
+            + "SPEECH_SPEED target=faster|slower|normal. HELP. STOP_LISTENING. CANCEL. REPEAT.\n"
+            + "Rules:\n"
+            + "- Pick the guess that makes most sense. Fix misheard app names to the closest installed app (cloud=Claude, what's up=WhatsApp, you tube=YouTube, insta=Instagram).\n"
+            + "- Use the conversation so far: 'him', 'her', 'it', 'that', 'again', 'the same to Ravi' refer to earlier turns.\n"
+            + "- Use remembered facts (for example 'call my wife' when a fact says the wife is Priya means CALL Priya).\n"
+            + "- If an app is open on screen, 'search X', 'scroll', 'play the first one', 'tap X' are about that app.\n"
+            + "- Never choose banking, UPI, payment or password apps. Never put a password or code in any field.\n"
+            + "- Keep message text in the user's own words and language. Times: 'morning 7' = 07:00, 'evening 6' = 18:00, 'night 9' = 21:00, 'tomorrow 6 am' = 06:00.\n"
+            + "- Answers are spoken: 1 to 3 short sentences, plain text, no markdown, lists, emojis or links. Reply in the user's language (Telugu or Hindi in Latin letters if they used it).\n"
+            + "- Never invent an action, never claim you did something, never make up live facts. If the request is not possible, say so briefly in answer.\n"
+            + "- If it is truly unclear, ask one short question in answer with no actions.\n"
+            + "The user is called %s; address them that way.";
 
-    /** Last few understood turns, so "send it to him too" style follow-ups work. Memory only. */
-    private static final Deque<String[]> brainHistory = new ArrayDeque<>();
+    /** One reading of what was said. */
+    static final class Brain {
+        final List<String[]> actions = new java.util.ArrayList<>(); // {action, target, message}
+        String answer = "";
+        boolean live;
+    }
+
+    /** Recent turns {time, heard, reply json}, so follow-ups like "send it to him too" work. Memory only; older than 10 minutes is dropped. */
+    private static final Deque<Object[]> brainHistory = new ArrayDeque<>();
+    private static final long HISTORY_MS = 10 * 60 * 1000;
+
+    static void forgetConversation() { synchronized (brainHistory) { brainHistory.clear(); } }
+
+    /** Adds what Jarvis itself said (for example an action's reply) to the last turn, so follow-ups have context. */
+    static void noteSpoken(String said) {
+        if (said == null || said.isEmpty()) return;
+        synchronized (brainHistory) {
+            Object[] last = brainHistory.peekLast();
+            if (last != null && System.currentTimeMillis() - (Long) last[0] < 60_000) last[3] = said.length() > 300 ? said.substring(0, 300) : said;
+        }
+    }
 
     /**
-     * The brain: asks Gemini which allowed action the words mean. Sends only the recognized words and
-     * installed app names (never audio, contacts or screen content). Blocking; call off the main thread.
-     * Returns {action, target, message, answer}, or null if Gemini can't be reached.
+     * The brain: asks Gemini what the words mean. Sends only the recognized words, the time, the app on screen,
+     * installed app names and the user's remembered facts (never audio, contacts or screen text).
+     * Blocking; call off the main thread. Returns null if Gemini can't be reached.
      */
-    static String[] understand(Context c, List<String> guesses, List<String> appNames, String onScreen, String userName) {
+    static Brain understand(Context c, List<String> guesses, List<String> appNames, String onScreen, String userName, String city, String facts) {
         String key = getKey(c);
         if (key.isEmpty() || !online(c)) return null;
         StringBuilder q = new StringBuilder("Heard: ");
         int n = 0;
         for (String g : guesses) { if (g == null || g.trim().isEmpty()) continue; if (n++ > 0) q.append(" | "); q.append(g.trim()); if (n >= 3) break; }
+        q.append("\nNow: ").append(new java.text.SimpleDateFormat("EEEE d MMMM yyyy, h:mm a", java.util.Locale.ENGLISH).format(new java.util.Date()));
+        if (city != null && !city.isEmpty()) q.append(", user's city ").append(city);
         if (onScreen != null && !onScreen.isEmpty()) q.append("\nApp open on screen now: ").append(onScreen);
+        if (facts != null && !facts.isEmpty()) q.append("\nFacts the user asked you to remember:\n").append(facts);
         q.append("\nInstalled apps: ");
         int a = 0;
         for (String name : appNames) { if (a++ > 0) q.append(", "); q.append(name); if (a >= 250) break; }
@@ -216,8 +249,14 @@ final class GeminiClient {
         for (String model : modelOrder()) {
             try {
                 JSONArray contents = new JSONArray();
+                long now = System.currentTimeMillis();
                 synchronized (brainHistory) {
-                    for (String[] t : brainHistory) { contents.put(turn("user", "Heard: " + t[0])); contents.put(turn("model", t[1])); }
+                    while (!brainHistory.isEmpty() && now - (Long) brainHistory.peekFirst()[0] > HISTORY_MS) brainHistory.removeFirst();
+                    for (Object[] t : brainHistory) {
+                        contents.put(turn("user", "Heard: " + t[1]));
+                        String said = (String) t[3];
+                        contents.put(turn("model", (String) t[2] + (said == null || said.isEmpty() ? "" : "\n(Jarvis then said: " + said + ")")));
+                    }
                 }
                 contents.put(turn("user", q.toString()));
                 JSONObject body = new JSONObject()
@@ -234,13 +273,14 @@ final class GeminiClient {
                 String resp = read(code >= 400 ? h.getErrorStream() : h.getInputStream());
                 if ((code == 400 || code == 401 || code == 403) && (resp.contains("API_KEY") || resp.contains("API key"))) return null;
                 if (code != 200) continue;
-                String[] r = parseBrain(replyText(new JSONObject(resp)));
+                String text = replyText(new JSONObject(resp));
+                Brain r = parseBrain(text);
                 if (r == null) continue;
                 worked(model);
                 String first = guesses.isEmpty() || guesses.get(0) == null ? "" : guesses.get(0);
                 synchronized (brainHistory) {
-                    brainHistory.addLast(new String[]{first, new JSONObject().put("action", r[0]).put("target", r[1]).put("message", r[2]).put("answer", r[3]).toString()});
-                    while (brainHistory.size() > 3) brainHistory.removeFirst();
+                    brainHistory.addLast(new Object[]{now, first, text.trim(), ""});
+                    while (brainHistory.size() > 5) brainHistory.removeFirst();
                 }
                 return r;
             } catch (Exception ignored) { }
@@ -248,17 +288,67 @@ final class GeminiClient {
         return null;
     }
 
-    /** Reads the brain's JSON (tolerates ```json fences or extra words). Returns null if it isn't usable. */
-    static String[] parseBrain(String text) {
+    /**
+     * Reads the brain's JSON (tolerates ```json fences or extra words, and the older single-action shape).
+     * Returns null if it isn't usable.
+     */
+    static Brain parseBrain(String text) {
         if (text == null) return null;
         int s = text.indexOf('{'), e = text.lastIndexOf('}');
         if (s < 0 || e <= s) return null;
         try {
             JSONObject o = new JSONObject(text.substring(s, e + 1));
-            String action = o.optString("action", "").trim().toUpperCase(java.util.Locale.ROOT);
-            if (action.isEmpty()) return null;
-            return new String[]{action, o.optString("target", "").trim(), o.optString("message", "").trim(), clean(o.optString("answer", ""))};
+            Brain b = new Brain();
+            b.answer = clean(o.optString("answer", ""));
+            b.live = o.optBoolean("live", false);
+            JSONArray acts = o.optJSONArray("actions");
+            if (acts == null && o.has("action")) acts = new JSONArray().put(o);
+            if (acts != null) {
+                for (int i = 0; i < acts.length() && b.actions.size() < 3; i++) {
+                    JSONObject x = acts.optJSONObject(i);
+                    if (x == null) continue;
+                    String act = x.optString("action", "").trim().toUpperCase(java.util.Locale.ROOT);
+                    if (act.isEmpty()) continue;
+                    if (act.equals("ANSWER")) { if (b.answer.isEmpty()) b.answer = clean(x.optString("answer", x.optString("message", ""))); continue; }
+                    b.actions.add(new String[]{act, x.optString("target", "").trim(), x.optString("message", "").trim()});
+                }
+            }
+            if (b.actions.isEmpty() && b.answer.isEmpty()) return null;
+            return b;
         } catch (Exception ex) { return null; }
+    }
+
+    /**
+     * A spoken answer that uses Google Search for fresh facts (news, scores, prices). Uses the same free key;
+     * returns null when search isn't available on the key or model, so the caller keeps the normal answer.
+     */
+    static String askLive(Context c, String question, String userName, String city) {
+        String key = getKey(c);
+        if (key.isEmpty() || !online(c)) return null;
+        String sys = SYSTEM.replace("Boss", userName == null || userName.isEmpty() ? "Boss" : userName)
+                + " Today is " + new java.text.SimpleDateFormat("EEEE d MMMM yyyy", java.util.Locale.ENGLISH).format(new java.util.Date())
+                + (city == null || city.isEmpty() ? "" : "; the user is in " + city) + ". Use Google Search for current facts and give the key fact first.";
+        for (String model : modelOrder()) {
+            try {
+                JSONObject body = new JSONObject()
+                        .put("systemInstruction", new JSONObject().put("parts", new JSONArray().put(new JSONObject().put("text", sys))))
+                        .put("contents", new JSONArray().put(turn("user", question)))
+                        .put("tools", new JSONArray().put(new JSONObject().put("google_search", new JSONObject())))
+                        .put("generationConfig", new JSONObject().put("maxOutputTokens", 1024));
+                HttpURLConnection h = (HttpURLConnection) new URL("https://generativelanguage.googleapis.com/v1beta/models/" + model + ":generateContent").openConnection();
+                h.setConnectTimeout(8000); h.setReadTimeout(20000);
+                h.setRequestMethod("POST"); h.setDoOutput(true);
+                h.setRequestProperty("Content-Type", "application/json");
+                h.setRequestProperty("x-goog-api-key", key);
+                try (OutputStream o = h.getOutputStream()) { o.write(body.toString().getBytes(StandardCharsets.UTF_8)); }
+                int code = h.getResponseCode();
+                String resp = read(code >= 400 ? h.getErrorStream() : h.getInputStream());
+                if (code != 200) continue;
+                String text = clean(replyText(new JSONObject(resp)));
+                if (!text.isEmpty()) return text;
+            } catch (Exception ignored) { }
+        }
+        return null;
     }
 
     private static JSONObject turn(String role, String text) throws Exception {

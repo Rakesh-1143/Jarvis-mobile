@@ -361,4 +361,51 @@ public class VoiceCommandTest {
         assertFalse(VoiceCommand.isPrivate(VoiceCommand.Type.TIME));
         assertFalse(VoiceCommand.isPrivate(VoiceCommand.Type.CALL_CONTROL));
     }
+
+    @Test
+    public void parsesBatchFive() {
+        assertEquals(VoiceCommand.Type.BRIEFING, VoiceCommand.parse("good morning").type);
+        assertEquals(VoiceCommand.Type.BRIEFING, VoiceCommand.parse("how is my day").type);
+        assertEquals(VoiceCommand.Type.NEXT_ALARM, VoiceCommand.parse("when is my next alarm").type);
+        VoiceCommand c = VoiceCommand.parse("what's on my calendar tomorrow");
+        assertEquals(VoiceCommand.Type.CALENDAR, c.type);
+        assertEquals("tomorrow", c.target);
+        assertEquals("today", VoiceCommand.parse("my schedule").target);
+        c = VoiceCommand.parse("turn off do not disturb");
+        assertEquals(VoiceCommand.Type.DND, c.type);
+        assertEquals("off", c.target);
+        assertEquals("on", VoiceCommand.parse("dnd on").target);
+        assertEquals("on", VoiceCommand.parse("do not disturb").target);
+        c = VoiceCommand.parse("put the phone on silent");
+        assertEquals(VoiceCommand.Type.RINGER, c.type);
+        assertEquals("silent", c.target);
+        assertEquals("vibrate", VoiceCommand.parse("vibrate mode").target);
+        assertEquals("normal", VoiceCommand.parse("put phone in normal mode").target);
+        c = VoiceCommand.parse("what is 15 percent of 2000");
+        assertEquals(VoiceCommand.Type.CALCULATE, c.type);
+        assertEquals(VoiceCommand.Type.CALCULATE, VoiceCommand.parse("25 times 4").type);
+        assertEquals(VoiceCommand.Type.MISSED_CALLS, VoiceCommand.parse("who called me").type);
+        assertEquals(VoiceCommand.Type.CALL_BACK, VoiceCommand.parse("call him back").type);
+        assertEquals(VoiceCommand.Type.CALL, VoiceCommand.parse("call ravi").type);
+        c = VoiceCommand.parse("remember that my wife's name is priya");
+        assertEquals(VoiceCommand.Type.REMEMBER, c.type);
+        assertEquals("my wife's name is priya", c.message);
+        assertEquals(VoiceCommand.Type.REMEMBER, VoiceCommand.parse("remember my car is a red swift").type);
+        assertEquals(VoiceCommand.Type.READ_MEMORY, VoiceCommand.parse("what do you know about me").type);
+        c = VoiceCommand.parse("forget everything");
+        assertEquals(VoiceCommand.Type.FORGET, c.type);
+        assertEquals("everything", c.target);
+        assertEquals("my car", VoiceCommand.parse("forget about my car").target);
+        // Old commands still parse the same way.
+        assertEquals(VoiceCommand.Type.REMINDER, VoiceCommand.parse("remind me to drink water at 5 pm").type);
+        assertEquals(VoiceCommand.Type.TIME, VoiceCommand.parse("what time is it").type);
+        assertEquals(VoiceCommand.Type.WEATHER, VoiceCommand.parse("what is the weather").type);
+        assertEquals(VoiceCommand.Type.TIMER, VoiceCommand.parse("timer 5 minutes").type);
+        assertEquals(VoiceCommand.Type.VOLUME, VoiceCommand.parse("volume up").type);
+        assertEquals(VoiceCommand.Type.CALCULATE, VoiceCommand.fromBrain("CALCULATE", "", "2000*15/100").type);
+        assertNull(VoiceCommand.fromBrain("CALCULATE", "", "rm -rf"));
+        assertEquals("silent", VoiceCommand.fromBrain("RINGER", "silent", "").target);
+        assertTrue(VoiceCommand.isPrivate(VoiceCommand.Type.READ_MEMORY));
+        assertFalse(VoiceCommand.isPrivate(VoiceCommand.Type.RINGER));
+    }
 }

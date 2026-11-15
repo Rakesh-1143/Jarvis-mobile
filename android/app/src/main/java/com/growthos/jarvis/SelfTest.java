@@ -60,12 +60,24 @@ final class SelfTest {
             List<String> names = new java.util.ArrayList<>();
             for (AppMatcher.App x : apps) if (!WhatsAppSender.blocked(x.packageName)) names.add(x.label);
             long t0 = System.currentTimeMillis();
-            String[] r = GeminiClient.understand(a, java.util.Collections.singletonList("put on some arijit singh songs on you tube"), names, "", "Boss");
+            GeminiClient.Brain r = GeminiClient.understand(a, java.util.Collections.singletonList("put on some arijit singh songs on you tube"), names, "", "Boss", "", "");
             long ms = System.currentTimeMillis() - t0;
+            GeminiClient.Brain r2 = GeminiClient.understand(a, java.util.Collections.singletonList("wake me up at 6 tomorrow and switch on the flashlight"), names, "", "Boss", "", "");
+            GeminiClient.forgetConversation(); // test sentences must not affect real follow-ups
             a.runOnUiThread(() -> {
-                VoiceCommand c = r == null ? null : VoiceCommand.fromBrain(r[0], r[1], r[2]);
+                String[] s1 = r == null || r.actions.isEmpty() ? null : r.actions.get(0);
+                VoiceCommand c = s1 == null ? null : VoiceCommand.fromBrain(s1[0], s1[1], s1[2]);
                 check("brain understands a free sentence", c != null && c.type == VoiceCommand.Type.SEARCH,
-                        (r == null ? "no reply" : r[0] + " " + r[1] + " / " + r[2]) + " · " + ms + " ms");
+                        (s1 == null ? (r == null ? "no reply" : "answer: " + r.answer) : s1[0] + " " + s1[1] + " / " + s1[2]) + " · " + ms + " ms");
+                StringBuilder got = new StringBuilder();
+                boolean alarm = false, torch = false;
+                if (r2 != null) for (String[] x : r2.actions) {
+                    got.append(x[0]).append(' ').append(x[1]).append("; ");
+                    VoiceCommand v = VoiceCommand.fromBrain(x[0], x[1], x[2]);
+                    if (v != null && v.type == VoiceCommand.Type.ALARM && v.target.equals("06:00")) alarm = true;
+                    if (v != null && v.type == VoiceCommand.Type.TORCH && v.target.equals("on")) torch = true;
+                }
+                check("brain splits a two-step request", alarm && torch, r2 == null ? "no reply" : got.toString());
                 next.run();
             });
         }, "selftest-brain").start();
@@ -100,7 +112,10 @@ final class SelfTest {
                 {"ask claude what is ai", "ASK_APP"}, {"tap search", "TAP"}, {"type hello", "TYPE"}, {"go home", "HOME"}, {"read the screen", "READ_SCREEN"},
                 {"read my notifications", "READ_NOTIFICATIONS"}, {"whatsapp video call ravi", "WHATSAPP_CALL"}, {"remind me to drink water at 5 pm", "REMINDER"},
                 {"take a note buy milk", "NOTE"}, {"read my notes", "READ_NOTES"}, {"navigate to charminar", "NAVIGATE"}, {"what's the weather", "WEATHER"},
-                {"take a photo", "PHOTO"}, {"what can you do", "HELP"}, {"repeat that", "REPEAT"}, {"take a screenshot", "SCREENSHOT"}, {"lock the phone", "LOCK"}, {"who is the prime minister of india", "UNKNOWN"}};
+                {"take a photo", "PHOTO"}, {"what can you do", "HELP"}, {"repeat that", "REPEAT"}, {"take a screenshot", "SCREENSHOT"}, {"lock the phone", "LOCK"},
+                {"good morning", "BRIEFING"}, {"what's on my calendar today", "CALENDAR"}, {"when is my next alarm", "NEXT_ALARM"}, {"turn on do not disturb", "DND"},
+                {"put the phone on silent", "RINGER"}, {"what is 15 percent of 2000", "CALCULATE"}, {"who called me", "MISSED_CALLS"}, {"call him back", "CALL_BACK"},
+                {"remember that my car is a red swift", "REMEMBER"}, {"what do you remember", "READ_MEMORY"}, {"who is the prime minister of india", "UNKNOWN"}};
         int ok = 0; StringBuilder bad = new StringBuilder();
         for (String[] s : samples) { String got = VoiceCommand.parse(s[0]).type.name(); if (got.equals(s[1])) ok++; else bad.append(s[0]).append("->").append(got).append("; "); }
         check("understands " + samples.length + " sample commands", ok == samples.length, ok + "/" + samples.length + (bad.length() > 0 ? " " + bad : ""));
@@ -118,6 +133,9 @@ final class SelfTest {
         check("Claude accepts a question", claude != null && resolves(PhoneActions.shareText(claude.packageName, "hi")), null);
         check("Gemini key available for questions", GeminiClient.hasKey(a), "save it in KALKI Settings, then open KALKI once");
         if (GeminiClient.hasKey(a)) check("Gemini key stored encrypted", GeminiClient.keyEncrypted(a), "Android Keystore");
+        check("Calendar permission", perm(Manifest.permission.READ_CALENDAR), "for calendar and briefing");
+        check("Call history permission", perm(Manifest.permission.READ_CALL_LOG), "for missed calls and call back");
+        check("Calculator works offline", "100".equals(Calc.format(Calc.eval("25 times 4"))), null);
         check("Notification reading on", JarvisNotifications.isOn(a), JarvisNotifications.connected() ? "connected" : "not connected");
         info("unlock greeting", a.getSharedPreferences("jarvis_settings", Context.MODE_PRIVATE).getBoolean(WakeWordService.KEY_GREET, true) ? "on" : "off");
         // Hardware

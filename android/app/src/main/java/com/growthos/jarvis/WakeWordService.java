@@ -232,6 +232,7 @@ public final class WakeWordService extends Service {
     // ---------- waiting for "Hey Jarvis" ----------
 
     private void startWaiting() {
+        pending.clear();
         if (stopping) return;
         if (!isEnabled(this)) { stopSelf(); return; }
         mode = Mode.WAITING;
@@ -356,6 +357,8 @@ public final class WakeWordService extends Service {
         mode = Mode.RESPONDING;
         state = "Listening to your command";
         retries = 0;
+        followUps = 0;
+        pending.clear();
         if (score >= 0) prefs(this).edit().putLong(KEY_LAST_WAKE, System.currentTimeMillis()).putFloat(KEY_LAST_SCORE, score).apply();
         updateNotification("Listening to your command…", false);
         main.removeCallbacks(watchdog);
@@ -367,13 +370,16 @@ public final class WakeWordService extends Service {
     private void listenForCommand() { listen(this::handleCommand); }
 
     /** Listens once and passes the recognizer's guesses to the handler. */
-    private void listen(java.util.function.Consumer<List<String>> handler) { listen(handler, 0); }
+    private void listen(java.util.function.Consumer<List<String>> handler) { listen(handler, 0, false); }
+
+    private void listen(java.util.function.Consumer<List<String>> handler, int attempt) { listen(handler, attempt, false); }
 
     /**
      * Google's recognizer sometimes ends a new session at once with "no match" when it starts right
      * after Jarvis spoke, or misses a short answer like "yes". Such misses are retried twice.
      */
-    private void listen(java.util.function.Consumer<List<String>> handler, int attempt) {
+    /** quiet = a miss ends the conversation silently (used for follow-ups). */
+    private void listen(java.util.function.Consumer<List<String>> handler, int attempt, boolean quiet) {
         main.removeCallbacks(watchdog);
         main.postDelayed(watchdog, RESPONSE_WATCHDOG_MS);
         try {
@@ -394,13 +400,14 @@ public final class WakeWordService extends Service {
                 if (miss && attempt < 2) {
                     long ms = SystemClock.elapsedRealtime() - startedAt;
                     remember("", "speech miss " + e + " after " + ms + " ms" + (began[0] ? " (heard voice)" : "") + ", listening again");
-                    if (began[0]) say("Sorry Boss, please say that again.", () -> listen(handler, attempt + 1));
-                    else main.postDelayed(() -> listen(handler, attempt + 1), 400);
+                    if (began[0]) say("Sorry Boss, please say that again.", () -> listen(handler, attempt + 1, quiet));
+                    else main.postDelayed(() -> listen(handler, attempt + 1, quiet), 400);
                     return;
                 }
                 String msg = e == SpeechRecognizer.ERROR_NETWORK || e == SpeechRecognizer.ERROR_NETWORK_TIMEOUT || e == SpeechRecognizer.ERROR_SERVER
                         ? "Boss, internet is unavailable. I can still perform offline actions once speech works offline."
                         : e == SpeechRecognizer.ERROR_NO_MATCH || e == SpeechRecognizer.ERROR_SPEECH_TIMEOUT ? "Sorry Boss, I didn't catch that." : "Sorry Boss, I couldn't listen just now.";
+                if (quiet && miss) { followUps = 0; endInteraction(); return; }
                 remember("", "speech error " + e + " (" + speechError(e) + ")");
                 say(msg, WakeWordService.this::endInteraction);
             }
@@ -468,6 +475,78 @@ public final class WakeWordService extends Service {
             return;
         }
         switch (c.type) {
+            case BRIEFING: {
+                remember(heard, "briefing");
+                final String base = Extras.briefing(this, prefs(this).getString(KEY_NAME, "Boss"));
+                if (!GeminiClient.online(this)) { say(base, this::endInteraction); return; }
+                updateNotification("Preparing your briefing…", false);
+                final String city = prefs(this).getString(KEY_CITY, "Hyderabad");
+                new Thread(() -> {
+                    String w = Weather.now(city);
+                    main.post(() -> { if (mode == Mode.RESPONDING) say(base + " " + w, this::endInteraction); });
+                }, "jarvis-briefing").start();
+                return;
+            }
+            case NEXT_ALARM: { String r = Extras.nextAlarm(this); remember(heard, "next alarm"); say(r, this::endInteraction); return; }
+            case CALENDAR: {
+                String r = Extras.calendar(this, "tomorrow".equals(c.target) ? 1 : 0);
+                remember(heard, "calendar " + c.target);
+                say(r, this::endInteraction);
+                return;
+            }
+            case DND: {
+                boolean on = "on".equals(c.target);
+                String r = Extras.dnd(this, on);
+                remember(heard, "do not disturb " + c.target + (r == null ? " (needs access)" : ""));
+                if (r != null) { say(r, this::endInteraction); return; }
+                say("Boss, turn on notification reading in Jarvis setup so I can switch Do Not Disturb. Opening the setting now.",
+                        () -> { AppOpener.open(this, new Intent("android.settings.ZEN_MODE_SETTINGS")); endInteraction(); });
+                return;
+            }
+            case RINGER: {
+                String r = Extras.ringer(this, c.target);
+                remember(heard, "ringer " + c.target + (r == null ? " (needs access)" : ""));
+                say(r != null ? r : "Boss, Android needs Do Not Disturb access for that. Turn on notification reading in Jarvis setup.", this::endInteraction);
+                return;
+            }
+            case CALCULATE: {
+                String r = Calc.answer(c.message);
+                remember(heard, "calculated " + c.message);
+                say(r == null ? "Boss, I couldn't work that out." : r, this::endInteraction);
+                return;
+            }
+            case MISSED_CALLS: { String r = Extras.speakMissed(this); remember(heard, "missed calls"); say(r, this::endInteraction); return; }
+            case CALL_BACK: {
+                if (!Extras.has(this, Manifest.permission.READ_CALL_LOG)) { remember(heard, "call history permission needed"); say("Boss, please allow call history in Jarvis setup first.", this::endInteraction); return; }
+                String[] last = Extras.lastCaller(this);
+                if (last == null) { remember(heard, "no recent caller"); say("Boss, I don't see any recent calls.", this::endInteraction); return; }
+                callNumber(heard, last[0], last[1]);
+                return;
+            }
+            case REMEMBER: {
+                try {
+                    boolean ok = Memory.add(this, c.message);
+                    remember(heard, ok ? "remembered a fact" : "refused to store a secret");
+                    say(ok ? "Okay Boss, I'll remember that." : "Boss, I don't store passwords, PINs, codes or bank details.", this::endInteraction);
+                } catch (Exception e) { remember(heard, "memory failed: " + e); say("Boss, I couldn't save that.", this::endInteraction); }
+                return;
+            }
+            case FORGET: {
+                if ("everything".equals(c.target)) {
+                    say("Forget everything you told me to remember, Boss?", () -> listen(r -> {
+                        boolean yes = false; for (String g : r) if (g != null && VoiceCommand.isYes(g)) { yes = true; break; }
+                        if (yes) { Memory.clear(this); GeminiClient.forgetConversation(); remember(heard, "memory cleared"); say("Done, Boss. I've forgotten everything.", this::endInteraction); }
+                        else { remember(heard, "memory kept"); say("Okay Boss, I'll keep it.", this::endInteraction); }
+                    }));
+                    return;
+                }
+                int n;
+                try { n = Memory.forget(this, c.target); } catch (Exception e) { n = 0; }
+                remember(heard, "forgot " + n + " fact(s)");
+                say(n == 0 ? "Boss, I don't have anything saved about " + c.target + "." : "Okay Boss, forgotten.", this::endInteraction);
+                return;
+            }
+            case READ_MEMORY: { remember(heard, "read memory"); say(Memory.speak(this), this::endInteraction); return; }
             case REPEAT:
                 remember(heard, "repeat");
                 say(lastSpoken.isEmpty() ? "Boss, I haven't said anything yet." : lastSpoken, this::endInteraction);
@@ -568,7 +647,9 @@ public final class WakeWordService extends Service {
             case HELP:
                 remember(heard, "help");
                 say("Boss, I can open apps, search YouTube or Google, send WhatsApp messages, make phone or WhatsApp calls, set alarms, timers and reminders, "
-                        + "take notes, tell the time, battery and weather, navigate, take a photo or screenshot, lock the phone, read notifications, and tap, type or scroll on the screen. Say repeat that to hear me again. Or just ask me a question.", this::endInteraction);
+                        + "take notes, tell the time, battery and weather, navigate, take a photo or screenshot, lock the phone, read notifications and missed calls, give your daily briefing, read your calendar, "
+                        + "switch Do Not Disturb or silent mode, do maths, and tap, type or scroll on the screen. Tell me to remember things about you. "
+                        + "Or just ask me anything, and ask follow-up questions without saying Hey Jarvis again.", this::endInteraction);
                 return;
             case SET_NAME: {
                 if ("city".equals(c.message)) {
@@ -593,6 +674,7 @@ public final class WakeWordService extends Service {
                 return;
             }
             case WHATSAPP_CALL:
+                if (!fromBrain && unknownPerson(c, guesses)) { brain(heard, guesses, apps); return; }
                 whatsappCall(heard, c);
                 return;
             case REMINDER: {
@@ -704,6 +786,7 @@ public final class WakeWordService extends Service {
                 return;
             }
             case CALL:
+                if (!fromBrain && unknownPerson(c, guesses)) { brain(heard, guesses, apps); return; }
                 callSomeone(heard, c.target);
                 return;
             case SEARCH: {
@@ -730,6 +813,7 @@ public final class WakeWordService extends Service {
                 return;
             }
             case SEND_MESSAGE:
+                if (!fromBrain && unknownPerson(c, guesses)) { brain(heard, guesses, apps); return; }
                 sendMessage(heard, c, guesses);
                 return;
             case STOP_LISTENING:
@@ -770,7 +854,7 @@ public final class WakeWordService extends Service {
         if (!GeminiClient.online(this)) { remember(heard, "not a known command (offline)"); say("Boss, internet is unavailable. I can still perform offline actions.", this::endInteraction); return; }
         updateNotification("Thinking…", false);
         main.removeCallbacks(watchdog);
-        main.postDelayed(watchdog, RESPONSE_WATCHDOG_MS);
+        main.postDelayed(watchdog, RESPONSE_WATCHDOG_MS + 20000);
         List<String> names = new ArrayList<>();
         String fg = WhatsAppSender.foregroundApp(), onScreen = "";
         for (AppMatcher.App a : apps) {
@@ -780,18 +864,77 @@ public final class WakeWordService extends Service {
         }
         final String screenApp = onScreen;
         final List<AppMatcher.App> appList = apps;
+        final String name = prefs(this).getString(KEY_NAME, "Boss"), city = prefs(this).getString(KEY_CITY, "Hyderabad");
+        final String facts = phoneLocked() ? "" : Memory.forPrompt(this); // personal facts stay out while locked
         new Thread(() -> {
-            String[] r = GeminiClient.understand(this, guesses, names, screenApp, prefs(this).getString(KEY_NAME, "Boss"));
+            GeminiClient.Brain r = GeminiClient.understand(this, guesses, names, screenApp, name, city, facts);
+            String live = null;
+            if (r != null && r.actions.isEmpty() && r.live) {
+                main.post(() -> updateNotification("Searching the web…", false));
+                live = GeminiClient.askLive(this, heard, name, city);
+            }
+            final String liveAnswer = live;
             main.post(() -> {
                 if (mode != Mode.RESPONDING) return;
                 if (r == null) { remember(heard, "brain unavailable"); say("Boss, I couldn't reach Gemini right now.", this::endInteraction); return; }
-                if ("ANSWER".equals(r[0])) { remember(heard, "answered"); say(r[3].isEmpty() ? "Sorry Boss, I don't know." : r[3], this::endInteraction); return; }
-                VoiceCommand bc = VoiceCommand.fromBrain(r[0], r[1], r[2]);
-                if (bc == null) { remember(heard, "brain gave unknown action " + r[0]); say(r[3].isEmpty() ? "Sorry Boss, I didn't understand that." : r[3], this::endInteraction); return; }
-                remember(heard, "understood as " + bc.type + (bc.target.isEmpty() ? "" : " " + bc.target));
-                execute(heard, bc, guesses, appList, true);
+                List<VoiceCommand> steps = new ArrayList<>();
+                for (String[] x : r.actions) {
+                    VoiceCommand bc = VoiceCommand.fromBrain(x[0], x[1], x[2]);
+                    if (bc == null) { remember(heard, "brain gave invalid step " + x[0] + " " + x[1]); continue; }
+                    steps.add(bc);
+                }
+                if (steps.isEmpty()) {
+                    String ans = liveAnswer != null ? liveAnswer : r.answer;
+                    remember(heard, liveAnswer != null ? "answered (live)" : "answered");
+                    GeminiClient.noteSpoken(ans);
+                    if (ans.isEmpty()) { say("Sorry Boss, I didn't understand that.", this::endInteraction); return; }
+                    say(ans, () -> followUp(appList));
+                    return;
+                }
+                StringBuilder what = new StringBuilder();
+                for (VoiceCommand bc : steps) what.append(what.length() > 0 ? ", then " : "").append(bc.type).append(bc.target.isEmpty() ? "" : " " + bc.target);
+                remember(heard, "understood as " + what);
+                pending.clear();
+                for (int i = 1; i < steps.size(); i++) pending.add(steps.get(i));
+                pendingHeard = heard; pendingGuesses = guesses;
+                execute(heard, steps.get(0), guesses, appList, true);
             });
         }, "jarvis-brain").start();
+    }
+
+    /** Steps still to run from a multi-step request ("set an alarm at 6 and turn on the torch"). */
+    private final java.util.ArrayDeque<VoiceCommand> pending = new java.util.ArrayDeque<>();
+    private String pendingHeard = "";
+    private List<String> pendingGuesses = new ArrayList<>();
+    private int followUps = 0;
+
+    /** Runs the next queued step, if any. Returns true if one was started. */
+    private boolean runPending() {
+        if (pending.isEmpty() || mode != Mode.RESPONDING || stopping) { pending.clear(); return false; }
+        final VoiceCommand next = pending.poll();
+        main.removeCallbacks(watchdog);
+        main.postDelayed(watchdog, RESPONSE_WATCHDOG_MS);
+        main.postDelayed(() -> { if (mode == Mode.RESPONDING) execute(pendingHeard, next, pendingGuesses, null, true); }, 1200);
+        return true;
+    }
+
+    /**
+     * After the brain answers, listen a few seconds more without "Hey Jarvis", so a follow-up question or
+     * "and tomorrow?" works like a conversation. Silence ends it quietly. At most 3 follow-ups in a row.
+     */
+    private void followUp(List<AppMatcher.App> apps) {
+        if (followUps >= 3 || stopping || mode != Mode.RESPONDING || !GeminiClient.online(this)) { followUps = 0; endInteraction(); return; }
+        followUps++;
+        updateNotification("Listening for a follow-up…", false);
+        listen(r -> {
+            String t = r.isEmpty() || r.get(0) == null ? "" : r.get(0).trim().toLowerCase(Locale.ROOT);
+            if (t.isEmpty() || t.matches("(?:no|nothing|no thanks|no thank you|thanks|thank you|ok|okay|that's all|thats all|done|bye|stop|cancel)(?: jarvis| boss)?")) {
+                followUps = 0;
+                if (t.startsWith("thank")) say("You're welcome, Boss.", this::endInteraction); else endInteraction();
+                return;
+            }
+            handleCommand(r);
+        }, 2, true);
     }
 
     /**
@@ -892,7 +1035,29 @@ public final class WakeWordService extends Service {
             if (p == null) { remember(heard, "contact not found: " + who); say("Boss, I couldn't find " + who + " in your contacts.", this::endInteraction); return; }
             name = p.label; number = p.packageName;
         }
-        final String n = number, label = name;
+        callNumber(heard, name, number);
+    }
+
+    /**
+     * True when the name isn't a contact or number but the brain could work it out ("my wife", "amma's
+     * brother", a misheard name). Only when the brain is available, so offline behaviour is unchanged.
+     */
+    private boolean unknownPerson(VoiceCommand c, List<String> guesses) {
+        String who = c.target;
+        if (who == null || who.trim().isEmpty() || !Contacts.allowed(this)) return false;
+        if (who.replaceAll("[0-9+\\s-]", "").isEmpty()) return false;
+        if (!GeminiClient.hasKey(this) || !GeminiClient.online(this)) return false;
+        List<AppMatcher.App> people = Contacts.withNumbers(this);
+        if (AppMatcher.matchName(who, people) != null) return false;
+        if (guesses != null) for (String g : guesses) {
+            VoiceCommand gc = VoiceCommand.parse(g);
+            if (gc.type == c.type && !gc.target.isEmpty() && AppMatcher.matchName(gc.target, people) != null) return false;
+        }
+        return true;
+    }
+
+    /** Asks "Call X, Boss?" and calls only after a spoken yes. */
+    private void callNumber(String heard, final String label, final String n) {
         say("Call " + label + ", Boss?", () -> listen(r -> {
             boolean yes = false;
             for (String g : r) if (g != null && (VoiceCommand.isYes(g) || g.trim().toLowerCase(java.util.Locale.ROOT).matches("(?:yes\\s+)?call(?:\\s+(?:him|her|them|it|now))?"))) { yes = true; break; }
@@ -953,6 +1118,7 @@ public final class WakeWordService extends Service {
         main.removeCallbacks(watchdog);
         releaseRecognizer();
         afterSpeech = null;
+        if (runPending()) return;
         if (commandOnly && !isEnabled(this)) { stopSelf(); return; }
         commandOnly = false;
         startWaiting();
@@ -968,6 +1134,7 @@ public final class WakeWordService extends Service {
     private void say(String text, Runnable then) {
         afterSpeech = then;
         if (text != null && !text.isEmpty() && !text.equals(lastSpoken) && !text.startsWith("Boss, I haven't said")) lastSpoken = text;
+        GeminiClient.noteSpoken(text);
         if (!ttsReady || tts == null) { main.post(this::speechFinished); return; }
         String name = prefs(this).getString(KEY_NAME, "Boss");
         if (!"Boss".equals(name)) text = text.replace("Boss", name);

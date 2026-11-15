@@ -7,7 +7,8 @@ import java.util.regex.Pattern;
 /** Turns recognized words into one allowed action. Pure Java, unit-tested. */
 public final class VoiceCommand {
     public enum Type { OPEN_APP, SEND_MESSAGE, SEARCH, SCROLL, PLAY_ITEM, MEDIA, BACK, CALL, CALL_CONTROL, TIME, DATE, BATTERY, VOLUME, TORCH, ALARM, TIMER, SETTINGS, ASK_APP,
-        READ_NOTIFICATIONS, WHATSAPP_CALL, REMINDER, NOTE, READ_NOTES, CLEAR_NOTES, NAVIGATE, WEATHER, PHOTO, HELP, SET_NAME, SPEECH_SPEED, TAP, TYPE, HOME, RECENTS, NOTIFICATIONS, READ_SCREEN, REPEAT, SCREENSHOT, LOCK, STOP_LISTENING, CANCEL, UNKNOWN }
+        READ_NOTIFICATIONS, WHATSAPP_CALL, REMINDER, NOTE, READ_NOTES, CLEAR_NOTES, NAVIGATE, WEATHER, PHOTO, HELP, SET_NAME, SPEECH_SPEED, TAP, TYPE, HOME, RECENTS, NOTIFICATIONS, READ_SCREEN, REPEAT, SCREENSHOT, LOCK,
+        BRIEFING, NEXT_ALARM, CALENDAR, DND, RINGER, CALCULATE, MISSED_CALLS, CALL_BACK, REMEMBER, FORGET, READ_MEMORY, STOP_LISTENING, CANCEL, UNKNOWN }
 
     public final Type type;
     /** For OPEN_APP the app name; for SEND_MESSAGE the person's name; for SEARCH the app ("" = web). */
@@ -162,6 +163,17 @@ public final class VoiceCommand {
     private static final Pattern REPEAT = Pattern.compile("^(?:repeat(?: that| it| again)?|say (?:that|it) again|what did you (?:just )?say|come again|pardon|sorry what)$");
     private static final Pattern SCREENSHOT = Pattern.compile("^(?:take |capture |grab )?(?:a )?screen ?shot(?: of (?:this|the screen))?$");
     private static final Pattern LOCK = Pattern.compile("^(?:lock (?:the |my )?(?:phone|screen|mobile|device)|lock it|screen lock|turn off (?:the )?screen)$");
+    private static final Pattern BRIEFING = Pattern.compile("^(?:good (?:morning|afternoon|evening)(?: jarvis)?|(?:give me )?(?:my |a |the )?(?:daily |morning )?briefing|brief me|what(?:'s| is) my day(?: look(?:ing)? like)?|how(?:'s| is) my day(?: today)?|plan for today|what(?:'s| is) up today)$");
+    private static final Pattern NEXT_ALARM = Pattern.compile("^(?:(?:when|what time) is |what(?:'s| is) )?(?:my )?next alarm$|^(?:what|which) alarms?(?: do i have| are set| is set)$|^do i have (?:an |any )?alarms?(?: set)?(?: for tomorrow)?$");
+    private static final Pattern CALENDAR = Pattern.compile("^(?:what(?:'s| is)(?: on)?|read|show|tell me|check|whats on)\\s+my\\s+(?:calendar|schedule|agenda|events|meetings|plans)(?:\\s+(?:for\\s+)?(today|tomorrow))?$|^(?:do i have|any)\\s+(?:any\\s+)?(?:meetings|events|plans)(?:\\s+(today|tomorrow))?$|^(?:my\\s+)?(?:calendar|schedule|agenda)(?:\\s+(?:for\\s+)?(today|tomorrow))?$");
+    private static final Pattern DND = Pattern.compile("^(?:(?:turn|switch|put|keep)\\s+)?(?:(on|off|enable|disable|start|stop|activate)\\s+)?(?:the\\s+)?(?:do not disturb|don't disturb|dnd)(?:\\s+mode)?(?:\\s+(on|off))?$");
+    private static final Pattern RINGER = Pattern.compile("^(?:(?:put|set|switch|make|turn|keep)\\s+)?(?:the\\s+|my\\s+)?(?:phone|ringer|mobile|sound)\\s+(?:on\\s+|to\\s+|in\\s+|into\\s+)?(silent|vibrate|vibration|normal|ring|ringing|general|loud)(?:\\s+mode)?$|^(silent|vibrate|vibration|normal|general|ring)\\s+mode(?:\\s+on)?$|^(?:put|set|switch|make|turn)\\s+(?:on\\s+)?(silent|vibrate|vibration)(?:\\s+mode)?$");
+    private static final Pattern CALC = Pattern.compile("^(?:what(?:'s| is)|whats|calculate|compute|how much is|tell me|solve|find)\\s+(.+?)\\??$");
+    private static final Pattern MISSED = Pattern.compile("^(?:who (?:called|rang|was calling)(?: me)?(?: today)?|(?:read |show |any |check |tell me )?(?:my |the )?missed calls?(?: today)?|did (?:anyone|anybody|someone) call(?: me)?(?: today)?|recent calls|(?:read |show )?(?:my )?call (?:log|history))$");
+    private static final Pattern CALL_BACK = Pattern.compile("^(?:call (?:them|him|her|that number|that person|the last (?:number|caller|person)) back|call back|call (?:him|her|them) back|return (?:the|that|my last) call|call the last (?:number|caller|person)|redial)$");
+    private static final Pattern REMEMBER = Pattern.compile("^(?:remember|keep in mind|don't forget|do not forget)\\s+that\\s+(.+)$|^remember\\s+((?:my|i|i'm|im|i am|our|we|mine)\\b.+)$");
+    private static final Pattern FORGET = Pattern.compile("^forget\\s+(?:about\\s+|that\\s+|what i (?:said|told you) about\\s+)?(.+)$");
+    private static final Pattern READ_MEMORY = Pattern.compile("^(?:what do you (?:know|remember) about me|what (?:all )?do you remember|what have i told you|what did i tell you to remember|tell me what you remember)$");
     private static final Pattern HELP = Pattern.compile("^(?:what can you do|what do you do|help|help me|what are your commands|commands|what can i say)$");
     private static final Pattern SET_CITY = Pattern.compile("^(?:my city is|i live in|set (?:my )?(?:home )?city (?:to|as))\\s+(.+)$");
     private static final Pattern SET_NAME = Pattern.compile("^(?:call me|my name is)\\s+(.+)$");
@@ -187,6 +199,24 @@ public final class VoiceCommand {
         if (REPEAT.matcher(t).matches()) return new VoiceCommand(Type.REPEAT, "");
         if (SCREENSHOT.matcher(t).matches()) return new VoiceCommand(Type.SCREENSHOT, "");
         if (LOCK.matcher(t).matches()) return new VoiceCommand(Type.LOCK, "");
+        if (BRIEFING.matcher(t).matches()) return new VoiceCommand(Type.BRIEFING, "");
+        if (NEXT_ALARM.matcher(t).matches()) return new VoiceCommand(Type.NEXT_ALARM, "");
+        m = CALENDAR.matcher(t);
+        if (m.matches()) { String d = m.group(1) != null ? m.group(1) : m.group(2) != null ? m.group(2) : m.group(3); return new VoiceCommand(Type.CALENDAR, "tomorrow".equals(d) ? "tomorrow" : "today"); }
+        m = DND.matcher(t);
+        if (m.matches()) { String a = m.group(2) != null ? m.group(2) : m.group(1) != null ? m.group(1) : "on"; return new VoiceCommand(Type.DND, a.matches("off|disable|stop") ? "off" : "on"); }
+        m = RINGER.matcher(t);
+        if (m.matches()) { String r = m.group(1) != null ? m.group(1) : m.group(2) != null ? m.group(2) : m.group(3); return new VoiceCommand(Type.RINGER, r.equals("silent") ? "silent" : r.startsWith("vibrat") ? "vibrate" : "normal"); }
+        if (MISSED.matcher(t).matches()) return new VoiceCommand(Type.MISSED_CALLS, "");
+        if (CALL_BACK.matcher(t).matches()) return new VoiceCommand(Type.CALL_BACK, "");
+        if (READ_MEMORY.matcher(t).matches()) return new VoiceCommand(Type.READ_MEMORY, "");
+        m = REMEMBER.matcher(t);
+        if (m.matches()) return new VoiceCommand(Type.REMEMBER, "", (m.group(1) != null ? m.group(1) : m.group(2)).trim());
+        m = FORGET.matcher(t);
+        if (m.matches()) { String w = m.group(1).trim(); return new VoiceCommand(Type.FORGET, w.matches("(?:everything|all|all of it|it all)") ? "everything" : w); }
+        m = CALC.matcher(t);
+        if (m.matches() && Calc.eval(m.group(1)) != null) return new VoiceCommand(Type.CALCULATE, "", m.group(1).trim());
+        if (Calc.eval(t) != null) return new VoiceCommand(Type.CALCULATE, "", t);
         m = SET_CITY.matcher(t);
         if (m.matches()) return new VoiceCommand(Type.SET_NAME, m.group(1).trim(), "city");
         m = SET_NAME.matcher(t);
@@ -352,6 +382,18 @@ public final class VoiceCommand {
             }
             case PHOTO:
                 return new VoiceCommand(type, tl.equals("selfie") ? "selfie" : "photo");
+            case CALENDAR:
+                return new VoiceCommand(type, tl.equals("tomorrow") ? "tomorrow" : "today");
+            case DND:
+                return tl.matches("on|off") ? new VoiceCommand(type, tl) : null;
+            case RINGER:
+                return tl.matches("silent|vibrate|normal") ? new VoiceCommand(type, tl) : null;
+            case CALCULATE:
+                return Calc.eval(m) == null ? null : new VoiceCommand(type, "", m);
+            case REMEMBER:
+                return m.isEmpty() ? null : new VoiceCommand(type, "", m);
+            case FORGET:
+                return t.isEmpty() ? null : new VoiceCommand(type, tl.matches("everything|all") ? "everything" : t);
             case SET_NAME:
                 return t.isEmpty() || t.length() > 40 ? null : new VoiceCommand(type, t, m.equalsIgnoreCase("city") ? "city" : "");
             case SPEECH_SPEED:
@@ -360,6 +402,7 @@ public final class VoiceCommand {
                 return new VoiceCommand(type, t);
             case BACK: case HOME: case RECENTS: case NOTIFICATIONS: case READ_SCREEN: case TIME: case DATE: case BATTERY:
             case READ_NOTES: case CLEAR_NOTES: case HELP: case STOP_LISTENING: case CANCEL: case REPEAT: case SCREENSHOT: case LOCK:
+            case BRIEFING: case NEXT_ALARM: case MISSED_CALLS: case CALL_BACK: case READ_MEMORY:
                 return new VoiceCommand(type, "");
             default:
                 return null;
@@ -370,6 +413,7 @@ public final class VoiceCommand {
     public static boolean isPrivate(Type t) {
         switch (t) {
             case READ_NOTIFICATIONS: case READ_NOTES: case CLEAR_NOTES: case READ_SCREEN: case TAP: case TYPE: case SET_NAME: case SCREENSHOT:
+            case BRIEFING: case CALENDAR: case MISSED_CALLS: case CALL_BACK: case REMEMBER: case FORGET: case READ_MEMORY:
                 return true;
             default:
                 return false;

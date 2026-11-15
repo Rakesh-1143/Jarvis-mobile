@@ -186,6 +186,14 @@ public final class AssistantSetupActivity extends Activity {
                 && checkSelfPermission(Manifest.permission.ANSWER_PHONE_CALLS) == PackageManager.PERMISSION_GRANTED;
         row("Phone calls (for \"call …\", \"answer\", \"end call\")", calls ? "Allowed · Jarvis asks before every call" : "Not allowed · Jarvis opens the dialer instead", calls);
         if (!calls) button("Allow phone calls", v -> requestPermissions(new String[]{Manifest.permission.CALL_PHONE, Manifest.permission.ANSWER_PHONE_CALLS}, CONTACTS_REQUEST + 1));
+        boolean cal = checkSelfPermission(Manifest.permission.READ_CALENDAR) == PackageManager.PERMISSION_GRANTED;
+        row("Calendar (for \"what's on my calendar\", briefing)", cal ? "Allowed · read on the phone only" : "Not allowed", cal);
+        if (!cal) button("Allow calendar", v -> requestPermissions(new String[]{Manifest.permission.READ_CALENDAR}, CONTACTS_REQUEST + 2));
+        boolean callLog = checkSelfPermission(Manifest.permission.READ_CALL_LOG) == PackageManager.PERMISSION_GRANTED;
+        row("Call history (for \"missed calls\", \"call back\")", callLog ? "Allowed · read on the phone only" : "Not allowed", callLog);
+        if (!callLog) button("Allow call history", v -> requestPermissions(new String[]{Manifest.permission.READ_CALL_LOG}, CONTACTS_REQUEST + 3));
+        int factCount = Memory.all(this).size();
+        row("Things Jarvis remembers about you", factCount == 0 ? "Nothing yet · say \"remember that …\"" : factCount + " · say \"what do you remember\" or \"forget …\"; kept on the phone, shared with Gemini only to understand you", null);
         boolean sender = WhatsAppSender.isOn(this);
         row("Jarvis control (accessibility)", sender ? "On · tap, type, scroll in apps; never money apps or password boxes; WhatsApp sends only after you say yes" : "Off · no tapping, typing or scrolling by voice", sender);
         button(sender ? "Turn off Jarvis control" : "Turn on Jarvis control", v -> {

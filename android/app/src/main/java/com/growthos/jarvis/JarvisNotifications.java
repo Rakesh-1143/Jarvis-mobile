@@ -31,6 +31,14 @@ public final class JarvisNotifications extends NotificationListenerService {
 
     static boolean connected() { return instance != null; }
 
+    /** Do Not Disturb (priority only) on/off. Allowed for an enabled notification listener; no extra permission. */
+    static boolean setDnd(boolean on) {
+        JarvisNotifications s = instance;
+        if (s == null) return false;
+        try { s.requestInterruptionFilter(on ? INTERRUPTION_FILTER_PRIORITY : INTERRUPTION_FILTER_ALL); return true; }
+        catch (Exception e) { return false; }
+    }
+
     private static final Pattern SECRET = Pattern.compile("(?is).*(\\botp\\b|one[- ]time|verification code|security code|login code|passcode|password|pin\\b|\\bcvv\\b|"
             + "debited|credited|a/c|acct|account no|upi|transaction|txn|balance|bank|card ending|\\bcode\\b.*\\d{4,}|\\d{4,8}\\s+is your).*");
 
