@@ -85,6 +85,7 @@ public final class MainActivity extends Activity {
         @JavascriptInterface public void openCamera(){runOnUiThread(()->{try{startActivity(new Intent(android.provider.MediaStore.ACTION_IMAGE_CAPTURE));}catch(Exception e){Toast.makeText(MainActivity.this,"No camera app is available",Toast.LENGTH_SHORT).show();}});}
         @JavascriptInterface public void openNotificationSettings(){runOnUiThread(()->startActivity(new Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS).putExtra(Settings.EXTRA_APP_PACKAGE,getPackageName())));}
         @JavascriptInterface public void openBatterySettings(){runOnUiThread(()->{try{startActivity(new Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS));}catch(Exception e){startActivity(new Intent(Settings.ACTION_SETTINGS));}});}
+        @JavascriptInterface public void openAssistantSetup(){runOnUiThread(()->startActivity(new Intent(MainActivity.this,AssistantSetupActivity.class)));}
         @JavascriptInterface public void openAppSettings(){runOnUiThread(()->startActivity(new Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS,Uri.parse("package:"+getPackageName()))));}
         @JavascriptInterface public String nativeVersion(){return "kalki-android-0.8.0-voice";}
     }

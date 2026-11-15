@@ -60,9 +60,12 @@ public final class WakeWordService extends Service {
     private String lastCallbackText = "";
     private long lastCallbackAt;
     private final Runnable startRunnable = this::startRecognition;
+    /** Read by the setup screen. */
+    static volatile boolean running;
 
     @Override public void onCreate() {
         super.onCreate();
+        running = true;
         createChannel();
         startForeground(NOTIFICATION_ID, notification());
         tts = new TextToSpeech(this, status -> {
@@ -161,6 +164,7 @@ public final class WakeWordService extends Service {
         return START_STICKY;
     }
     @Override public void onDestroy() {
+        running = false;
         stopping = true; handler.removeCallbacksAndMessages(null);
         if (recognizer != null) { try { recognizer.cancel(); } catch (Exception ignored) { } recognizer.destroy(); }
         if (tts != null) { tts.stop(); tts.shutdown(); } super.onDestroy();
