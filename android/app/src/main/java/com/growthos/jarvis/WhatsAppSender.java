@@ -1,6 +1,12 @@
 package com.growthos.jarvis;
 
 import android.accessibilityservice.AccessibilityService;
+import android.accessibilityservice.GestureDescription;
+import android.graphics.Path;
+import android.graphics.Rect;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.regex.Pattern;
 import android.content.ComponentName;
 import android.content.Context;
 import android.os.Handler;
@@ -12,6 +18,10 @@ import android.view.accessibility.AccessibilityNodeInfo;
 import java.util.List;
 
 /**
+ * Jarvis's optional screen helper (Android accessibility), limited to WhatsApp and YouTube in
+ * res/xml/whatsapp_sender.xml. It acts only when the user gives a voice command:
+ *  - WhatsApp: taps Send once, only right after the user said "yes" to "Send it, Boss?".
+ *  - YouTube: scrolls, or taps the n-th video on screen, when asked by voice.
  * Taps WhatsApp's Send button once, only right after the user said "yes" to "Send it, Boss?".
  * Android limits it to WhatsApp (see res/xml/whatsapp_sender.xml). It does nothing unless armed,
  * reads no other screens, and only taps Send when the typed text is exactly the confirmed message.
@@ -25,6 +35,94 @@ public final class WhatsAppSender extends AccessibilityService {
     private static final Runnable expire = () -> {
         if (pendingText != null) { disarm(); WakeWordService.announce("Boss, I couldn't press send. Please tap it."); }
     };
+
+    static final String YOUTUBE = "com.google.android.youtube";
+    private static volatile WhatsAppSender instance;
+
+    @Override protected void onServiceConnected() { super.onServiceConnected(); instance = this; }
+    @Override public boolean onUnbind(android.content.Intent i) { if (instance == this) instance = null; return super.onUnbind(i); }
+    @Override public void onDestroy() { if (instance == this) instance = null; super.onDestroy(); }
+
+    /** Package of the app on screen, if it is one this helper may control; else null. */
+    static String foregroundApp() {
+        WhatsAppSender s = instance;
+        if (s == null) return null;
+        AccessibilityNodeInfo root = s.getRootInActiveWindow();
+        if (root == null || root.getPackageName() == null) return null;
+        String p = root.getPackageName().toString();
+        return YOUTUBE.equals(p) || java.util.Arrays.asList(Contacts.WHATSAPP).contains(p) ? p : null;
+    }
+
+    static boolean running() { return instance != null; }
+
+    /** Scrolls the main list of the app on screen. */
+    static boolean scroll(boolean down) {
+        WhatsAppSender s = instance;
+        if (s == null || foregroundApp() == null) return false;
+        AccessibilityNodeInfo root = s.getRootInActiveWindow();
+        AccessibilityNodeInfo list = biggestScrollable(root, 0);
+        if (list != null && list.performAction(down ? AccessibilityNodeInfo.ACTION_SCROLL_FORWARD : AccessibilityNodeInfo.ACTION_SCROLL_BACKWARD)) return true;
+        // Fallback: a finger swipe in the middle of the screen.
+        Rect r = new Rect();
+        root.getBoundsInScreen(r);
+        Path p = new Path();
+        float x = r.centerX(), top = r.top + r.height() * 0.3f, bottom = r.top + r.height() * 0.75f;
+        p.moveTo(x, down ? bottom : top);
+        p.lineTo(x, down ? top : bottom);
+        return s.dispatchGesture(new GestureDescription.Builder().addStroke(new GestureDescription.StrokeDescription(p, 0, 300)).build(), null, null);
+    }
+
+    private static final Pattern VIDEO = Pattern.compile("(?is).*(play video|\\d[\\d.,]*\\s*[kmb]?\\s+views|\\d+\\s+(?:seconds?|minutes?|hours?)\\b.*go to channel).*");
+
+    /** Taps the n-th video (1 = top) visible in YouTube. */
+    static String playVideo(int n) {
+        WhatsAppSender s = instance;
+        if (s == null || !YOUTUBE.equals(foregroundApp())) return null;
+        AccessibilityNodeInfo root = s.getRootInActiveWindow();
+        List<AccessibilityNodeInfo> found = new ArrayList<>();
+        collectVideos(root, found, 0);
+        if (found.isEmpty()) return null;
+        Collections.sort(found, (a, b) -> { Rect ra = new Rect(), rb = new Rect(); a.getBoundsInScreen(ra); b.getBoundsInScreen(rb); return ra.top != rb.top ? ra.top - rb.top : ra.left - rb.left; });
+        AccessibilityNodeInfo v = found.get(Math.min(n, found.size()) - 1);
+        CharSequence d = v.getContentDescription();
+        AccessibilityNodeInfo target = v;
+        while (target != null && !target.isClickable()) target = target.getParent();
+        boolean ok = target != null && target.performAction(AccessibilityNodeInfo.ACTION_CLICK);
+        if (!ok) {
+            Rect r = new Rect(); v.getBoundsInScreen(r);
+            Path p = new Path(); p.moveTo(r.centerX(), r.centerY());
+            ok = s.dispatchGesture(new GestureDescription.Builder().addStroke(new GestureDescription.StrokeDescription(p, 0, 60)).build(), null, null);
+        }
+        if (!ok) return null;
+        String title = d == null ? "" : d.toString().split(" - |, ")[0].trim();
+        return title.length() > 80 ? title.substring(0, 80) : title;
+    }
+
+    private static void collectVideos(AccessibilityNodeInfo n, List<AccessibilityNodeInfo> out, int depth) {
+        if (n == null || depth > 40) return;
+        CharSequence d = n.getContentDescription();
+        if (d != null && n.isVisibleToUser() && VIDEO.matcher(d).matches()) {
+            Rect r = new Rect(); n.getBoundsInScreen(r);
+            if (r.height() > 80) { out.add(n); return; }
+        }
+        for (int i = 0; i < n.getChildCount(); i++) collectVideos(n.getChild(i), out, depth + 1);
+    }
+
+    private static AccessibilityNodeInfo biggestScrollable(AccessibilityNodeInfo n, int depth) {
+        if (n == null || depth > 40) return null;
+        AccessibilityNodeInfo best = null; int bestArea = 0;
+        if (n.isScrollable() && n.isVisibleToUser()) { Rect r = new Rect(); n.getBoundsInScreen(r); best = n; bestArea = r.width() * r.height(); }
+        for (int i = 0; i < n.getChildCount(); i++) {
+            AccessibilityNodeInfo c = biggestScrollable(n.getChild(i), depth + 1);
+            if (c != null) { Rect r = new Rect(); c.getBoundsInScreen(r); int a = r.width() * r.height(); if (a > bestArea) { best = c; bestArea = a; } }
+        }
+        return best;
+    }
+
+    static boolean back() {
+        WhatsAppSender s = instance;
+        return s != null && foregroundApp() != null && s.performGlobalAction(GLOBAL_ACTION_BACK);
+    }
 
     static void arm(String pkg, String text) {
         pendingPkg = pkg; pendingText = text.trim(); deadline = SystemClock.elapsedRealtime() + WINDOW_MS;

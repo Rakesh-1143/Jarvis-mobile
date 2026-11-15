@@ -6,7 +6,7 @@ import java.util.regex.Pattern;
 
 /** Turns recognized words into one allowed action. Pure Java, unit-tested. */
 public final class VoiceCommand {
-    public enum Type { OPEN_APP, SEND_MESSAGE, SEARCH, STOP_LISTENING, CANCEL, UNKNOWN }
+    public enum Type { OPEN_APP, SEND_MESSAGE, SEARCH, SCROLL, PLAY_ITEM, MEDIA, BACK, STOP_LISTENING, CANCEL, UNKNOWN }
 
     public final Type type;
     /** For OPEN_APP the app name; for SEND_MESSAGE the person's name; for SEARCH the app ("" = web). */
@@ -43,6 +43,11 @@ public final class VoiceCommand {
     private static final Pattern OPEN = Pattern.compile("^(?:please\\s+)?(?:can you\\s+)?(?:open|launch|start|run|show)\\s+(?:up\\s+)?(.+?)(?:\\s+(?:app|application))?(?:\\s+please)?$");
     private static final Pattern OPEN_SUFFIX = Pattern.compile("^(.+?)\\s+(?:open|kholo|open karo|open cheyyi|open chey)$");
     private static final Pattern STOP = Pattern.compile("^(?:stop|turn off|disable)\\s+(?:listening|jarvis|kalki|wake word)$");
+    private static final Pattern SCROLL = Pattern.compile("^(?:scroll|swipe|go|move)\\s*(down|up|more|further|below|above|back up)?(?:\\s+(?:more|again|a bit|little|please|the page|the list))*$|^(?:show more|next page|more videos|more results)$");
+    private static final String ORDINAL = "(first|second|third|fourth|fifth|sixth|1st|2nd|3rd|4th|5th|6th|one|two|three|four|five|six|[1-6]|top|this|that|the)";
+    private static final Pattern PLAY_ITEM = Pattern.compile("^(?:play|open|start|click|tap|watch|select)(?:\\s+on)?(?:\\s+the)?(?:\\s+" + ORDINAL + ")?\\s+(?:video|result|one|link)(?:\\s+(?:number\\s+)?" + ORDINAL + ")?(?:\\s+please)?$|^(?:play|open|watch)\\s+(?:the\\s+)?" + ORDINAL + "\\s+one$");
+    private static final Pattern MEDIA = Pattern.compile("^(pause|resume|continue|play|stop|next|skip|previous|replay)(?:\\s+(?:the\\s+)?(?:video|song|music|it|playing|this))?(?:\\s+(?:video|song))?(?:\\s+please)?$|^(?:play|go to)\\s+(?:the\\s+)?(next|previous)\\s+(?:video|song)$");
+    private static final Pattern BACK = Pattern.compile("^(?:go\\s+)?back(?:\\s+please)?$");
     private static final Pattern CANCEL = Pattern.compile("^(?:cancel|nothing|never mind|nevermind|no|stop)$");
 
     public static VoiceCommand parse(String text) {
@@ -54,6 +59,24 @@ public final class VoiceCommand {
         if (t.isEmpty()) return new VoiceCommand(Type.UNKNOWN, "");
         if (STOP.matcher(t).matches()) return new VoiceCommand(Type.STOP_LISTENING, "");
         if (CANCEL.matcher(t).matches()) return new VoiceCommand(Type.CANCEL, "");
+        Matcher s0 = SCROLL.matcher(t);
+        if (s0.matches()) {
+            String d = s0.group(1) == null ? "down" : s0.group(1);
+            return new VoiceCommand(Type.SCROLL, d.equals("up") || d.equals("above") || d.equals("back up") ? "up" : "down");
+        }
+        s0 = PLAY_ITEM.matcher(t);
+        if (s0.matches()) {
+            String o = s0.group(1) != null ? s0.group(1) : s0.group(2) != null ? s0.group(2) : s0.group(3);
+            return new VoiceCommand(Type.PLAY_ITEM, String.valueOf(ordinal(o)));
+        }
+        s0 = MEDIA.matcher(t);
+        if (s0.matches()) {
+            String a = s0.group(1) != null ? s0.group(1) : s0.group(2);
+            String key = a.equals("pause") || a.equals("stop") ? "pause" : a.equals("next") || a.equals("skip") ? "next"
+                    : a.equals("previous") || a.equals("replay") ? "previous" : "play";
+            return new VoiceCommand(Type.MEDIA, key);
+        }
+        if (BACK.matcher(t).matches()) return new VoiceCommand(Type.BACK, "");
         String w = t.replaceFirst("\\s+(?:on|in|through|via|using)\\s+(?:whatsapp|whats app)$", "");
         // "open WhatsApp (and) send message to Ravi saying hi" -> "send message to Ravi saying hi"
         Matcher m = OPEN_WHATSAPP_THEN.matcher(w);
@@ -97,6 +120,19 @@ public final class VoiceCommand {
     public static boolean isNo(String text) { return NO.matcher(clean(text)).matches(); }
     private static String clean(String text) {
         return text == null ? "" : text.toLowerCase(Locale.ROOT).replaceAll("[.!?,]+", " ").replaceAll("\\s+", " ").trim();
+    }
+
+    /** "second" -> 2; missing or "this/top" -> 1. */
+    static int ordinal(String o) {
+        if (o == null) return 1;
+        switch (o) {
+            case "second": case "2nd": case "two": case "2": return 2;
+            case "third": case "3rd": case "three": case "3": return 3;
+            case "fourth": case "4th": case "four": case "4": return 4;
+            case "fifth": case "5th": case "five": case "5": return 5;
+            case "sixth": case "6th": case "six": case "6": return 6;
+            default: return 1;
+        }
     }
 
     private static VoiceCommand search(String app, String query) {

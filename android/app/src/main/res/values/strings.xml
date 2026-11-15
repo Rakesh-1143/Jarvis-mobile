@@ -2,6 +2,6 @@
 <resources>
     <string name="setup_short">Jarvis setup</string>
     <string name="setup_long">Jarvis setup and diagnostics</string>
-    <string name="whatsapp_sender_label">Jarvis send (WhatsApp)</string>
-    <string name="whatsapp_sender_description">Lets Jarvis tap Send in WhatsApp after you say "yes" to "Send it, Boss?". It works only inside WhatsApp, only right after a message you confirmed, and only when the typed text matches that message. It does not read other apps or screens. Turn it off here any time.</string>
+    <string name="whatsapp_sender_label">Jarvis control (WhatsApp, YouTube)</string>
+    <string name="whatsapp_sender_description">Lets Jarvis act on your voice commands inside WhatsApp and YouTube only. WhatsApp: taps Send only after you say "yes" to "Send it, Boss?", and only when the typed text matches that message. YouTube: scrolls or plays a video when you ask. It does not read or touch other apps. Turn it off here any time.</string>
 </resources>

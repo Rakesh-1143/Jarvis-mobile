@@ -163,9 +163,9 @@ public final class AssistantSetupActivity extends Activity {
         row("Contacts permission (for \"send message to …\")", contacts ? "Allowed · names are read on the phone only" : "Not allowed", contacts);
         if (!contacts) button("Allow contacts", v -> requestPermissions(new String[]{Manifest.permission.READ_CONTACTS}, CONTACTS_REQUEST));
         boolean sender = WhatsAppSender.isOn(this);
-        row("Send WhatsApp by voice (accessibility, WhatsApp only)", sender ? "On · sends only after you say yes" : "Off · you tap Send yourself", sender);
-        button(sender ? "Turn off Jarvis send" : "Turn on Jarvis send", v -> {
-            Toast.makeText(this, "Tap \"Jarvis send (WhatsApp)\" (it may be under Installed apps or Downloaded apps)", Toast.LENGTH_LONG).show();
+        row("Jarvis control (accessibility, WhatsApp + YouTube only)", sender ? "On · WhatsApp sends only after you say yes; YouTube scroll and play" : "Off · you tap Send yourself; no YouTube scroll/play", sender);
+        button(sender ? "Turn off Jarvis control" : "Turn on Jarvis control", v -> {
+            Toast.makeText(this, "Tap \"Jarvis control (WhatsApp, YouTube)\" (it may be under Installed apps or Downloaded apps)", Toast.LENGTH_LONG).show();
             try { startActivity(new Intent(android.provider.Settings.ACTION_ACCESSIBILITY_SETTINGS)); } catch (Exception ignored) { }
         });
         row("Background listening service", WakeWordService.running ? "Running" : "Not running", null);

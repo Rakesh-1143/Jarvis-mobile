@@ -409,7 +409,47 @@ public final class WakeWordService extends Service {
                 say("Opening " + app.label + ".", () -> { AppOpener.open(this, launch); endInteraction(); });
                 return;
             }
+            case SCROLL: {
+                boolean down = !"up".equals(c.target);
+                if (!WhatsAppSender.running()) { remember(heard, "scroll: Jarvis control is off"); say("Boss, turn on Jarvis control in Jarvis setup so I can scroll.", this::endInteraction); return; }
+                boolean ok = WhatsAppSender.scroll(down);
+                remember(heard, ok ? "scrolled " + c.target : "could not scroll (works in YouTube and WhatsApp)");
+                if (ok) endInteraction(); else say("Boss, I can scroll only in YouTube and WhatsApp.", this::endInteraction);
+                return;
+            }
+            case PLAY_ITEM: {
+                if (!WhatsAppSender.running()) { remember(heard, "play: Jarvis control is off"); say("Boss, turn on Jarvis control in Jarvis setup so I can play videos.", this::endInteraction); return; }
+                int n = Integer.parseInt(c.target);
+                String title = WhatsAppSender.playVideo(n);
+                remember(heard, title == null ? "no video found on screen" : "played video " + n + ": " + title);
+                if (title == null) say("Boss, I couldn't find a video on the screen. Open YouTube first.", this::endInteraction);
+                else say("Playing " + (title.isEmpty() ? "the video" : title) + ".", this::endInteraction);
+                return;
+            }
+            case MEDIA: {
+                int key = "pause".equals(c.target) ? android.view.KeyEvent.KEYCODE_MEDIA_PAUSE : "next".equals(c.target) ? android.view.KeyEvent.KEYCODE_MEDIA_NEXT
+                        : "previous".equals(c.target) ? android.view.KeyEvent.KEYCODE_MEDIA_PREVIOUS : android.view.KeyEvent.KEYCODE_MEDIA_PLAY;
+                remember(heard, "media " + c.target);
+                // After Jarvis finishes speaking, so the video's sound focus is back.
+                main.postDelayed(() -> {
+                    AudioManager am = (AudioManager) getSystemService(AUDIO_SERVICE);
+                    if (am != null) {
+                        am.dispatchMediaKeyEvent(new android.view.KeyEvent(android.view.KeyEvent.ACTION_DOWN, key));
+                        am.dispatchMediaKeyEvent(new android.view.KeyEvent(android.view.KeyEvent.ACTION_UP, key));
+                    }
+                }, 300);
+                endInteraction();
+                return;
+            }
+            case BACK: {
+                boolean ok = WhatsAppSender.back();
+                remember(heard, ok ? "went back" : "back: works only in YouTube and WhatsApp with Jarvis control on");
+                if (ok) endInteraction(); else say("Boss, I can go back only in YouTube and WhatsApp, with Jarvis control on.", this::endInteraction);
+                return;
+            }
             case SEARCH: {
+                // "search latest movies" while YouTube is open searches YouTube.
+                if (c.target.isEmpty() && WhatsAppSender.YOUTUBE.equals(WhatsAppSender.foregroundApp())) c = VoiceCommand.parse("search " + c.message + " on youtube");
                 AppMatcher.App app = c.target.isEmpty() ? null : AppMatcher.match(c.target, apps);
                 if (!c.target.isEmpty() && app == null && !c.target.matches("(?:google|web|internet)")) {
                     remember(heard, "app not found: " + c.target);

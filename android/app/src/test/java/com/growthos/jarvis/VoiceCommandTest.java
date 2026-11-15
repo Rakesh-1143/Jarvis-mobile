@@ -158,4 +158,37 @@ public class VoiceCommandTest {
         assertEquals(VoiceCommand.Type.OPEN_APP, VoiceCommand.parse("can you open WhatsApp").type);
         assertEquals(VoiceCommand.Type.OPEN_APP, VoiceCommand.parse("open whatsapp").type);
     }
+
+    private static void is(String said, VoiceCommand.Type type, String target) {
+        VoiceCommand c = VoiceCommand.parse(said);
+        assertEquals(said, type, c.type);
+        assertEquals(said, target, c.target);
+    }
+
+    @Test public void parsesScreenAndMediaCommands() {
+        is("scroll", VoiceCommand.Type.SCROLL, "down");
+        is("scroll down", VoiceCommand.Type.SCROLL, "down");
+        is("Scroll up please", VoiceCommand.Type.SCROLL, "up");
+        is("can you scroll down more", VoiceCommand.Type.SCROLL, "down");
+        is("show more", VoiceCommand.Type.SCROLL, "down");
+        is("play video", VoiceCommand.Type.PLAY_ITEM, "1");
+        is("play the first video", VoiceCommand.Type.PLAY_ITEM, "1");
+        is("play the second video", VoiceCommand.Type.PLAY_ITEM, "2");
+        is("open third video", VoiceCommand.Type.PLAY_ITEM, "3");
+        is("play video number 2", VoiceCommand.Type.PLAY_ITEM, "2");
+        is("play this video", VoiceCommand.Type.PLAY_ITEM, "1");
+        is("play the second one", VoiceCommand.Type.PLAY_ITEM, "2");
+        is("pause", VoiceCommand.Type.MEDIA, "pause");
+        is("pause the video", VoiceCommand.Type.MEDIA, "pause");
+        is("stop video", VoiceCommand.Type.MEDIA, "pause");
+        is("play", VoiceCommand.Type.MEDIA, "play");
+        is("resume", VoiceCommand.Type.MEDIA, "play");
+        is("next video", VoiceCommand.Type.MEDIA, "next");
+        is("play the next video", VoiceCommand.Type.MEDIA, "next");
+        is("go back", VoiceCommand.Type.BACK, "");
+        is("stop", VoiceCommand.Type.CANCEL, "");
+        search("search for latest movies", "", "latest movies");
+        search("play Leo songs on YouTube", "youtube", "leo songs");
+        assertEquals(VoiceCommand.Type.OPEN_APP, VoiceCommand.parse("open YouTube").type);
+    }
 }
