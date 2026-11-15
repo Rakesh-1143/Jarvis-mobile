@@ -32,13 +32,41 @@ public final class WakeWordEngine implements AutoCloseable {
     private final ArrayDeque<float[]> melFrames = new ArrayDeque<>();
     private final ArrayDeque<float[]> features = new ArrayDeque<>();
     private int predictions;
+    private int quietChunks;
+    private long skippedChunks, totalChunks;
+    /** Which ONNX Runtime backend is in use ("XNNPACK" or "CPU"). */
+    public final String backend;
+    /** Loudness of the last chunk (RMS of 16-bit samples). */
+    public volatile float lastRms;
+
+    /** Chunks quieter than this (about -47 dBFS) count as silence. */
+    private static final float QUIET_RMS = 150f;
+    /** After this many quiet chunks in a row (0.8 s), embeddings of silence are reused instead of recomputed. */
+    private static final int QUIET_CHUNKS_BEFORE_SKIP = 10;
 
     public WakeWordEngine(byte[] melModel, byte[] embeddingModel, byte[] wakeModel) throws OrtException {
         OrtSession.SessionOptions o = new OrtSession.SessionOptions();
         o.setIntraOpNumThreads(1);
         o.setInterOpNumThreads(1);
+        o.setOptimizationLevel(OrtSession.SessionOptions.OptLevel.ALL_OPT);
+        OrtSession.SessionOptions fast = new OrtSession.SessionOptions();
+        fast.setIntraOpNumThreads(1);
+        fast.setInterOpNumThreads(1);
+        fast.setOptimizationLevel(OrtSession.SessionOptions.OptLevel.ALL_OPT);
+        OrtSession e;
+        String b;
+        try {
+            // XNNPACK runs the convolution-heavy embedding model much faster on ARM phones.
+            fast.addXnnpack(Collections.singletonMap("intra_op_num_threads", "1"));
+            e = env.createSession(embeddingModel, fast);
+            b = "XNNPACK";
+        } catch (Throwable t) {
+            e = env.createSession(embeddingModel, o);
+            b = "CPU";
+        }
+        emb = e;
+        backend = b;
         mel = env.createSession(melModel, o);
-        emb = env.createSession(embeddingModel, o);
         wake = env.createSession(wakeModel, o);
         melIn = mel.getInputNames().iterator().next();
         embIn = emb.getInputNames().iterator().next();
@@ -49,6 +77,7 @@ public final class WakeWordEngine implements AutoCloseable {
     /** Clears audio history, as openWakeWord does at start (mel buffer of ones, features from noise). */
     public void reset() throws OrtException {
         rawFilled = 0;
+        quietChunks = 0;
         melFrames.clear();
         features.clear();
         predictions = 0;
@@ -72,6 +101,21 @@ public final class WakeWordEngine implements AutoCloseable {
         System.arraycopy(raw, 0, input, 0, rawFilled);
         Collections.addAll(melFrames, melspectrogram(input));
         trim(melFrames, MEL_MAX);
+
+        double sum = 0;
+        for (short v : pcm) sum += (double) v * v;
+        lastRms = (float) Math.sqrt(sum / CHUNK);
+        quietChunks = lastRms < QUIET_RMS ? quietChunks + 1 : 0;
+        totalChunks++;
+        if (quietChunks > QUIET_CHUNKS_BEFORE_SKIP && !features.isEmpty()) {
+            // Nothing but near-silence for the whole embedding window: its embedding would be the
+            // same as the last one, so reuse it and skip the expensive models. Saves battery.
+            features.add(features.peekLast());
+            trim(features, FEATURE_MAX);
+            skippedChunks++;
+            predictions++;
+            return 0f;
+        }
 
         float[][] last = new float[MEL_WINDOW][];
         int skip = melFrames.size() - MEL_WINDOW, i = 0, j = 0;
@@ -110,6 +154,9 @@ public final class WakeWordEngine implements AutoCloseable {
             return ((float[][]) r.get(0).getValue())[0][0];
         }
     }
+
+    /** Share of chunks skipped as silence, 0..1. */
+    public float skippedShare() { return totalChunks == 0 ? 0f : (float) skippedChunks / totalChunks; }
 
     private static void trim(ArrayDeque<float[]> q, int max) { while (q.size() > max) q.removeFirst(); }
 

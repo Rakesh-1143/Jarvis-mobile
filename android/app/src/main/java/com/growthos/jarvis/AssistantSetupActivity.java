@@ -42,6 +42,10 @@ public final class AssistantSetupActivity extends Activity {
     private static final int TEXT = 0xffe6f7ff, MUTED = 0xff8aa4b4, GOOD = 0xff4ade80, BAD = 0xfffbbf24, BG = 0xff02070d, CARD = 0xff0b1722;
 
     private LinearLayout list;
+    private TextView liveView;
+    private String liveText;
+    private final android.os.Handler ui = new android.os.Handler(android.os.Looper.getMainLooper());
+    private final Runnable liveTick = this::updateLive;
     private TextToSpeech tts;
     private String ttsStatus = "Checking…";
     private final StringBuilder report = new StringBuilder();
@@ -116,6 +120,14 @@ public final class AssistantSetupActivity extends Activity {
             if (WakeWordService.running) WakeWordService.start(this, WakeWordService.ACTION_RESUME);
             render();
         });
+        if (WakeWordService.running) {
+            liveView = text("", 15, TEXT);
+            liveView.setPadding(dp(12), dp(10), dp(12), dp(10));
+            liveView.setBackgroundColor(CARD);
+            list.addView(liveView);
+            note("Live check: say \"Hey Jarvis\" now. Mic level should jump when you talk. A wake score above " + String.format(Locale.US, "%.2f", threshold) + " wakes Jarvis.");
+            updateLive();
+        } else liveView = null;
         long lastWake = sp.getLong(WakeWordService.KEY_LAST_WAKE, 0);
         row("Last \"Hey Jarvis\" heard", lastWake == 0 ? "Not yet" : time(lastWake) + String.format(Locale.US, " · score %.2f", sp.getFloat(WakeWordService.KEY_LAST_SCORE, 0)), null);
         String lastCmd = sp.getString(WakeWordService.KEY_LAST_COMMAND, null);
@@ -166,6 +178,19 @@ public final class AssistantSetupActivity extends Activity {
         note("Paste the report in the KALKI project chat so Claude can see your phone's real results.");
         button("Refresh", v -> render());
     }
+
+    private void updateLive() {
+        ui.removeCallbacks(liveTick);
+        if (liveView == null || !WakeWordService.running) return;
+        String s = String.format(Locale.US, "Mic level: %.0f dB%s\nWake score now: %.2f · best in last 10 s: %.2f",
+                WakeWordService.liveDb, WakeWordService.liveDb < -85 ? " (silent?)" : "", WakeWordService.liveScore, WakeWordService.bestScore);
+        if (!WakeWordService.engineInfo.isEmpty()) s += "\nEngine: " + WakeWordService.engineInfo;
+        liveView.setText(s);
+        liveText = s.replace("\n", " · ");
+        ui.postDelayed(liveTick, 500);
+    }
+
+    @Override protected void onPause() { ui.removeCallbacks(liveTick); super.onPause(); }
 
     private void toggleWake() {
         boolean on = !WakeWordService.isEnabled(this);
@@ -227,7 +252,8 @@ public final class AssistantSetupActivity extends Activity {
     private void copyReport() {
         ClipboardManager cb = (ClipboardManager) getSystemService(CLIPBOARD_SERVICE);
         if (cb == null) return;
-        cb.setPrimaryClip(ClipData.newPlainText("Jarvis report", report.toString()));
+        String text = report.toString() + (liveView != null && liveText != null ? "\n[Live]\n" + liveText + "\n" : "");
+        cb.setPrimaryClip(ClipData.newPlainText("Jarvis report", text));
         Toast.makeText(this, "Report copied", Toast.LENGTH_SHORT).show();
     }
 

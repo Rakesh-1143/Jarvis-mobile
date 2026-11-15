@@ -70,6 +70,10 @@ public final class WakeWordService extends Service {
     /** Read by the setup screen. */
     static volatile boolean running;
     static volatile String state = "Off";
+    /** Live values for the setup screen (same process; nothing is stored). */
+    static volatile float liveDb = -120f, liveScore, bestScore;
+    static volatile long bestScoreAt;
+    static volatile String engineInfo = "";
 
     private enum Mode { WAITING, RESPONDING, PAUSED }
 
@@ -178,6 +182,7 @@ public final class WakeWordService extends Service {
         try {
             if (engine == null) engine = new WakeWordEngine(asset("wakeword/melspectrogram.onnx"), asset("wakeword/embedding_model.onnx"), asset("wakeword/hey_jarvis_v0.1.onnx"));
             else engine.reset();
+            engineInfo = engine.backend;
         } catch (Throwable t) {
             fail("Wake word engine could not start: " + t.getClass().getSimpleName());
             return;
@@ -201,7 +206,14 @@ public final class WakeWordService extends Service {
                 long t0 = SystemClock.elapsedRealtimeNanos();
                 float score = engine.process(chunk);
                 cpuNanos += SystemClock.elapsedRealtimeNanos() - t0;
-                if (++chunks % 750 == 0) prefs(this).edit().putFloat(KEY_CPU, cpuNanos / 1e6f / chunks).apply(); // about once a minute
+                liveDb = engine.lastRms <= 1f ? -90f : (float) (20 * Math.log10(engine.lastRms / 32768.0));
+                liveScore = score;
+                long now = SystemClock.elapsedRealtime();
+                if (score >= bestScore || now - bestScoreAt > 10000) { bestScore = score; bestScoreAt = now; }
+                if (++chunks % 750 == 0) { // about once a minute
+                    prefs(this).edit().putFloat(KEY_CPU, cpuNanos / 1e6f / chunks).apply();
+                    engineInfo = engine.backend + String.format(Locale.US, " · %.0f%% silence skipped", engine.skippedShare() * 100);
+                }
                 if (score >= threshold && !inCall(am)) {
                     final float s = score;
                     mode = Mode.RESPONDING;
