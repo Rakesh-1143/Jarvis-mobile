@@ -35,7 +35,8 @@ public final class LaunchActivity extends Activity {
         if (Intent.ACTION_MAIN.equals(a)) return (i.getComponent() != null || i.getPackage() != null) && i.getData() == null;
         if (Intent.ACTION_SEARCH.equals(a) || Intent.ACTION_WEB_SEARCH.equals(a)) return i.getData() == null;
         if (Intent.ACTION_VIEW.equals(a) && i.getData() != null)
-            return java.util.Arrays.asList("https", "market", "geo", "spotify").contains(i.getData().getScheme());
+            return java.util.Arrays.asList("https", "market", "geo", "spotify", "google.navigation").contains(i.getData().getScheme());
+        if (android.provider.MediaStore.INTENT_ACTION_STILL_IMAGE_CAMERA.equals(a)) return i.getData() == null;
         // Calls are placed only after the user said yes to "Call X, Boss?".
         if ((Intent.ACTION_CALL.equals(a) || Intent.ACTION_DIAL.equals(a)) && i.getData() != null) return "tel".equals(i.getData().getScheme());
         if (android.provider.AlarmClock.ACTION_SET_ALARM.equals(a) || android.provider.AlarmClock.ACTION_SET_TIMER.equals(a)) return i.getData() == null;

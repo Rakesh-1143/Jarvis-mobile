@@ -101,7 +101,7 @@ public class VoiceCommandTest {
     @Test public void otherCommands() {
         assertEquals(VoiceCommand.Type.STOP_LISTENING, VoiceCommand.parse("stop listening").type);
         assertEquals(VoiceCommand.Type.CANCEL, VoiceCommand.parse("never mind").type);
-        assertEquals(VoiceCommand.Type.UNKNOWN, VoiceCommand.parse("what is the weather").type);
+        assertEquals(VoiceCommand.Type.WEATHER, VoiceCommand.parse("what is the weather").type);
         assertEquals(VoiceCommand.Type.UNKNOWN, VoiceCommand.parse("").type);
     }
 
@@ -260,5 +260,44 @@ public class VoiceCommandTest {
         assertEquals(VoiceCommand.Type.UNKNOWN, VoiceCommand.parse("tell me a joke").type);
         assertEquals(VoiceCommand.Type.NOTIFICATIONS, VoiceCommand.parse("open notifications").type);
         assertEquals("hello world", GeminiClient.clean("**hello** _world_"));
+    }
+
+    private static void both(String said, VoiceCommand.Type type, String target, String message) {
+        VoiceCommand c = VoiceCommand.parse(said);
+        assertEquals(said, type, c.type);
+        assertEquals(said, target, c.target);
+        assertEquals(said, message, c.message);
+    }
+
+    @Test public void parsesBatchThree() {
+        both("whatsapp video call ravi", VoiceCommand.Type.WHATSAPP_CALL, "ravi", "video");
+        both("whatsapp call amma", VoiceCommand.Type.WHATSAPP_CALL, "amma", "voice");
+        both("video call kiran on whatsapp", VoiceCommand.Type.WHATSAPP_CALL, "kiran", "video");
+        both("call ravi on whatsapp", VoiceCommand.Type.WHATSAPP_CALL, "ravi", "voice");
+        both("remind me to drink water at 5 pm", VoiceCommand.Type.REMINDER, "17:00", "drink water");
+        both("remind me at 6 30 am to go for a walk", VoiceCommand.Type.REMINDER, "06:30", "go for a walk");
+        both("remind me to call amma in 10 minutes", VoiceCommand.Type.REMINDER, "+600", "call amma");
+        both("remind me in 2 hours to check the oven", VoiceCommand.Type.REMINDER, "+7200", "check the oven");
+        both("take a note buy milk and eggs", VoiceCommand.Type.NOTE, "", "buy milk and eggs");
+        both("note down meeting at 4", VoiceCommand.Type.NOTE, "", "meeting at 4");
+        is("read my notes", VoiceCommand.Type.READ_NOTES, "");
+        is("delete all my notes", VoiceCommand.Type.CLEAR_NOTES, "");
+        is("navigate to charminar", VoiceCommand.Type.NAVIGATE, "charminar");
+        is("take me to the airport", VoiceCommand.Type.NAVIGATE, "the airport");
+        is("how do i get to hitech city", VoiceCommand.Type.NAVIGATE, "hitech city");
+        is("what's the weather", VoiceCommand.Type.WEATHER, "");
+        is("what's the weather in chennai", VoiceCommand.Type.WEATHER, "chennai");
+        is("will it rain today", VoiceCommand.Type.WEATHER, "");
+        is("take a photo", VoiceCommand.Type.PHOTO, "photo");
+        is("take a selfie", VoiceCommand.Type.PHOTO, "selfie");
+        is("what can you do", VoiceCommand.Type.HELP, "");
+        is("call me rakesh", VoiceCommand.Type.SET_NAME, "rakesh");
+        both("my city is warangal", VoiceCommand.Type.SET_NAME, "warangal", "city");
+        is("speak slower", VoiceCommand.Type.SPEECH_SPEED, "slower");
+        // Older commands unchanged.
+        is("call ravi", VoiceCommand.Type.CALL, "ravi");
+        is("set alarm for 6 am", VoiceCommand.Type.ALARM, "06:00");
+        is("open whatsapp", VoiceCommand.Type.OPEN_APP, "whatsapp");
+        assertEquals("raining", Weather.describe(63));
     }
 }

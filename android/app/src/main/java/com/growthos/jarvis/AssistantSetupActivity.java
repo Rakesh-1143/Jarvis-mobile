@@ -162,6 +162,9 @@ public final class AssistantSetupActivity extends Activity {
         boolean contacts = Contacts.allowed(this);
         row("Contacts permission (for \"send message to …\")", contacts ? "Allowed · names are read on the phone only" : "Not allowed", contacts);
         if (!contacts) button("Allow contacts", v -> requestPermissions(new String[]{Manifest.permission.READ_CONTACTS}, CONTACTS_REQUEST));
+        row("Jarvis calls you", sp.getString(WakeWordService.KEY_NAME, "Boss") + " · say \"call me …\" to change", null);
+        row("Voice speed", String.format(Locale.US, "%.1fx · say \"speak faster\" or \"speak slower\"", sp.getFloat(WakeWordService.KEY_RATE, 1.0f)), null);
+        row("Weather city", sp.getString(WakeWordService.KEY_CITY, "Hyderabad") + " · say \"my city is …\" to change", null);
         boolean save = sp.getBoolean(WakeWordService.KEY_SAVE_BATTERY, true);
         row("Sleep on low battery", save ? "On · stops listening at " + WakeWordService.LOW_BATTERY + "% or with Battery Saver (long-press Home still works)" : "Off · listens even when battery is low", null);
         button(save ? "Keep listening on low battery" : "Sleep on low battery", v -> { sp.edit().putBoolean(WakeWordService.KEY_SAVE_BATTERY, !save).apply(); restartWake(); render(); });

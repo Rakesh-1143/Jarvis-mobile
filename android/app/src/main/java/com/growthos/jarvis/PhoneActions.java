@@ -122,6 +122,19 @@ final class PhoneActions {
         } catch (SecurityException e) { return "Boss, Android didn't allow that."; }
     }
 
+    /** Turn-by-turn directions in Google Maps (or any maps app). */
+    static Intent navigate(String place) {
+        Intent i = new Intent(Intent.ACTION_VIEW, Uri.parse("google.navigation:q=" + Uri.encode(place)));
+        return i;
+    }
+
+    /** Opens the camera ready to take a photo; asks for the front camera for a selfie (not all camera apps honour it). */
+    static Intent camera(boolean selfie) {
+        Intent i = new Intent(android.provider.MediaStore.INTENT_ACTION_STILL_IMAGE_CAMERA);
+        if (selfie) i.putExtra("android.intent.extras.CAMERA_FACING", 1).putExtra("android.intent.extras.LENS_FACING_FRONT", 1).putExtra("android.intent.extra.USE_FRONT_CAMERA", true);
+        return i;
+    }
+
     /** Opens an AI app (Claude, ChatGPT, Gemini...) with the question typed in, using Android's normal share. */
     static Intent shareText(String pkg, String text) {
         return new Intent(Intent.ACTION_SEND).setType("text/plain").putExtra(Intent.EXTRA_TEXT, text).setPackage(pkg);

@@ -77,7 +77,9 @@ final class SelfTest {
                 {"what time is it", "TIME"}, {"battery", "BATTERY"}, {"volume up", "VOLUME"}, {"turn on torch", "TORCH"},
                 {"set alarm for 6 am", "ALARM"}, {"timer 5 minutes", "TIMER"}, {"open wifi settings", "SETTINGS"},
                 {"ask claude what is ai", "ASK_APP"}, {"tap search", "TAP"}, {"type hello", "TYPE"}, {"go home", "HOME"}, {"read the screen", "READ_SCREEN"},
-                {"read my notifications", "READ_NOTIFICATIONS"}, {"who is the prime minister of india", "UNKNOWN"}};
+                {"read my notifications", "READ_NOTIFICATIONS"}, {"whatsapp video call ravi", "WHATSAPP_CALL"}, {"remind me to drink water at 5 pm", "REMINDER"},
+                {"take a note buy milk", "NOTE"}, {"read my notes", "READ_NOTES"}, {"navigate to charminar", "NAVIGATE"}, {"what's the weather", "WEATHER"},
+                {"take a photo", "PHOTO"}, {"what can you do", "HELP"}, {"who is the prime minister of india", "UNKNOWN"}};
         int ok = 0; StringBuilder bad = new StringBuilder();
         for (String[] s : samples) { String got = VoiceCommand.parse(s[0]).type.name(); if (got.equals(s[1])) ok++; else bad.append(s[0]).append("->").append(got).append("; "); }
         check("understands " + samples.length + " sample commands", ok == samples.length, ok + "/" + samples.length + (bad.length() > 0 ? " " + bad : ""));
@@ -102,6 +104,9 @@ final class SelfTest {
             for (String id : cm.getCameraIdList()) if (Boolean.TRUE.equals(cm.getCameraCharacteristics(id).get(CameraCharacteristics.FLASH_INFO_AVAILABLE))) flash = true;
         } catch (Exception ignored) { }
         check("Torch available", flash, null);
+        check("Navigation can open", resolves(PhoneActions.navigate("Charminar")), null);
+        check("Camera can open", resolves(PhoneActions.camera(false)), null);
+        try { Notes.all(a); check("Notes storage works", true, Notes.all(a).size() + " notes"); } catch (Exception e) { check("Notes storage works", false, String.valueOf(e)); }
         info("battery", PhoneActions.battery(a));
         check("Money apps are blocked", WhatsAppSender.blocked("com.phonepe.app") && WhatsAppSender.blocked("net.one97.paytm") && WhatsAppSender.blocked("com.google.android.apps.nbu.paisa.user") && !WhatsAppSender.blocked("com.google.android.youtube"), null);
     }

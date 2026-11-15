@@ -7,7 +7,7 @@ import java.util.regex.Pattern;
 /** Turns recognized words into one allowed action. Pure Java, unit-tested. */
 public final class VoiceCommand {
     public enum Type { OPEN_APP, SEND_MESSAGE, SEARCH, SCROLL, PLAY_ITEM, MEDIA, BACK, CALL, CALL_CONTROL, TIME, DATE, BATTERY, VOLUME, TORCH, ALARM, TIMER, SETTINGS, ASK_APP,
-        READ_NOTIFICATIONS, TAP, TYPE, HOME, RECENTS, NOTIFICATIONS, READ_SCREEN, STOP_LISTENING, CANCEL, UNKNOWN }
+        READ_NOTIFICATIONS, WHATSAPP_CALL, REMINDER, NOTE, READ_NOTES, CLEAR_NOTES, NAVIGATE, WEATHER, PHOTO, HELP, SET_NAME, SPEECH_SPEED, TAP, TYPE, HOME, RECENTS, NOTIFICATIONS, READ_SCREEN, STOP_LISTENING, CANCEL, UNKNOWN }
 
     public final Type type;
     /** For OPEN_APP the app name; for SEND_MESSAGE the person's name; for SEARCH the app ("" = web). */
@@ -148,8 +148,70 @@ public final class VoiceCommand {
 
     private static final Pattern READ_NOTIFS = Pattern.compile("^(?:read|check|show|tell me|what are|any)\\s+(?:out\\s+)?(?:my\\s+|the\\s+)?(?:new\\s+|latest\\s+|recent\\s+|unread\\s+)?(?:(whatsapp|whats app|instagram|gmail|telegram|sms|youtube)\\s+)?(?:notifications?|messages?|alerts)(?:\\s+(?:from|on|in)\\s+(whatsapp|instagram|gmail|telegram|sms|youtube))?$|^do i have any\\s+(?:new\\s+)?(?:notifications?|messages?)$");
 
+    private static final Pattern WA_CALL = Pattern.compile("^(?:make\\s+a\\s+)?(?:whatsapp|whats app)\\s+(video\\s+|voice\\s+|audio\\s+)?call\\s+(?:to\\s+|with\\s+)?(.+)$|^(video|voice|audio)\\s+call\\s+(?:to\\s+|with\\s+)?(.+?)(?:\\s+on\\s+(?:whatsapp|whats app))?$|^call\\s+(.+?)\\s+on\\s+(?:whatsapp|whats app)(\\s+video)?$");
+    private static final String CLOCK = "(\\d{1,2})(?:[:. ](\\d{2}))?\\s*(am|pm|a m|p m|in the morning|in the evening|at night|tonight)?";
+    private static final Pattern REMIND_AT = Pattern.compile("^remind me\\s+(?:to\\s+|about\\s+)?(.+?)\\s+(?:at|by)\\s+" + CLOCK + "$");
+    private static final Pattern REMIND_AT2 = Pattern.compile("^remind me\\s+(?:at|by)\\s+" + CLOCK + "\\s+(?:to\\s+|about\\s+)?(.+)$");
+    private static final Pattern REMIND_IN = Pattern.compile("^remind me\\s+(?:to\\s+|about\\s+)?(.+?)\\s+in\\s+(\\d+)\\s*(minutes?|mins?|hours?|hrs?|seconds?)$|^remind me\\s+in\\s+(\\d+)\\s*(minutes?|mins?|hours?|hrs?|seconds?)\\s+(?:to\\s+|about\\s+)?(.+)$");
+    private static final Pattern NOTE = Pattern.compile("^(?:take|make|add|write|save)\\s+(?:a\\s+)?note(?:\\s+that|\\s+saying|\\s*:)?\\s+(.+)$|^note\\s+(?:down\\s+|that\\s+)?(.+)$");
+    private static final Pattern READ_NOTES = Pattern.compile("^(?:read|show|tell me|what are)\\s+(?:me\\s+)?(?:my\\s+|the\\s+)?notes?$|^my notes$");
+    private static final Pattern CLEAR_NOTES = Pattern.compile("^(?:delete|clear|remove|erase)\\s+(?:all\\s+)?(?:my\\s+|the\\s+)?notes?$");
+    private static final Pattern NAVIGATE = Pattern.compile("^(?:navigate|navigation|directions|direction|take me|drive|route|show me the way)\\s+(?:me\\s+)?(?:to\\s+|for\\s+)?(.+)$|^how (?:do i|to|can i) (?:go|get|reach) (?:to\\s+)?(.+)$");
+    private static final Pattern WEATHER = Pattern.compile("^(?:what(?:'s|s| is)?\\s+|how(?:'s|s| is)?\\s+)?(?:the\\s+|today's\\s+)?weather(?:\\s+(?:like|today|now|outside|report|forecast))*(?:\\s+(?:in|at|for)\\s+(.+?))?(?:\\s+today)?$|^(?:will it|is it going to)\\s+rain(?:\\s+today)?(?:\\s+in\\s+(.+))?$");
+    private static final Pattern PHOTO = Pattern.compile("^(?:take|click|capture|shoot)\\s+(?:a\\s+|my\\s+)?(photo|picture|pic|selfie|snap|snapshot)$");
+    private static final Pattern HELP = Pattern.compile("^(?:what can you do|what do you do|help|help me|what are your commands|commands|what can i say)$");
+    private static final Pattern SET_CITY = Pattern.compile("^(?:my city is|i live in|set (?:my )?(?:home )?city (?:to|as))\\s+(.+)$");
+    private static final Pattern SET_NAME = Pattern.compile("^(?:call me|my name is)\\s+(.+)$");
+    private static final Pattern SPEED = Pattern.compile("^(?:speak|talk)\\s+(faster|slower|normal|normally|fast|slow)(?:\\s+please)?$");
+
+    /** "6 30 pm" -> "18:30", or null if not a time. */
+    static String clock(String h, String m, String ap) {
+        int hh = Integer.parseInt(h), mm = m == null ? 0 : Integer.parseInt(m);
+        ap = ap == null ? "" : ap;
+        if (ap.startsWith("p") || ap.contains("evening") || ap.contains("night")) { if (hh < 12) hh += 12; }
+        else if (ap.startsWith("a") || ap.contains("morning")) { if (hh == 12) hh = 0; }
+        return hh > 23 || mm > 59 ? null : String.format(Locale.ROOT, "%02d:%02d", hh, mm);
+    }
+
+    private static int seconds(String n, String unit) {
+        int v = Integer.parseInt(n);
+        return unit.startsWith("h") ? v * 3600 : unit.startsWith("m") ? v * 60 : v;
+    }
+
     private static VoiceCommand device(String t) {
         Matcher m;
+        if (HELP.matcher(t).matches()) return new VoiceCommand(Type.HELP, "");
+        m = SET_CITY.matcher(t);
+        if (m.matches()) return new VoiceCommand(Type.SET_NAME, m.group(1).trim(), "city");
+        m = SET_NAME.matcher(t);
+        if (m.matches()) return new VoiceCommand(Type.SET_NAME, m.group(1).trim());
+        m = SPEED.matcher(t);
+        if (m.matches()) return new VoiceCommand(Type.SPEECH_SPEED, m.group(1).startsWith("fast") ? "faster" : m.group(1).startsWith("slow") ? "slower" : "normal");
+        m = WA_CALL.matcher(t);
+        if (m.matches()) {
+            if (m.group(2) != null) return new VoiceCommand(Type.WHATSAPP_CALL, m.group(2).trim(), m.group(1) != null && m.group(1).startsWith("video") ? "video" : "voice");
+            if (m.group(4) != null) return new VoiceCommand(Type.WHATSAPP_CALL, m.group(4).trim(), m.group(3).equals("video") ? "video" : "voice");
+            return new VoiceCommand(Type.WHATSAPP_CALL, m.group(5).trim(), m.group(6) != null ? "video" : "voice");
+        }
+        m = REMIND_AT.matcher(t);
+        if (m.matches()) { String c = clock(m.group(2), m.group(3), m.group(4)); if (c != null) return new VoiceCommand(Type.REMINDER, c, m.group(1).trim()); }
+        m = REMIND_AT2.matcher(t);
+        if (m.matches()) { String c = clock(m.group(1), m.group(2), m.group(3)); if (c != null) return new VoiceCommand(Type.REMINDER, c, m.group(4).trim()); }
+        m = REMIND_IN.matcher(t);
+        if (m.matches()) {
+            if (m.group(1) != null) return new VoiceCommand(Type.REMINDER, "+" + seconds(m.group(2), m.group(3)), m.group(1).trim());
+            return new VoiceCommand(Type.REMINDER, "+" + seconds(m.group(4), m.group(5)), m.group(6).trim());
+        }
+        if (READ_NOTES.matcher(t).matches()) return new VoiceCommand(Type.READ_NOTES, "");
+        if (CLEAR_NOTES.matcher(t).matches()) return new VoiceCommand(Type.CLEAR_NOTES, "");
+        m = NOTE.matcher(t);
+        if (m.matches()) return new VoiceCommand(Type.NOTE, "", (m.group(1) != null ? m.group(1) : m.group(2)).trim());
+        m = NAVIGATE.matcher(t);
+        if (m.matches()) return new VoiceCommand(Type.NAVIGATE, (m.group(1) != null ? m.group(1) : m.group(2)).trim());
+        m = WEATHER.matcher(t);
+        if (m.matches()) { String city = m.group(1) != null ? m.group(1) : m.group(2); return new VoiceCommand(Type.WEATHER, city == null ? "" : city.trim()); }
+        m = PHOTO.matcher(t);
+        if (m.matches()) return new VoiceCommand(Type.PHOTO, m.group(1).equals("selfie") ? "selfie" : "photo");
         m = READ_NOTIFS.matcher(t);
         if (m.matches()) return new VoiceCommand(Type.READ_NOTIFICATIONS, m.group(1) != null ? m.group(1).replace("whats app", "whatsapp") : m.group(2) != null ? m.group(2) : "");
         if (ANSWER.matcher(t).matches()) return new VoiceCommand(Type.CALL_CONTROL, "answer");

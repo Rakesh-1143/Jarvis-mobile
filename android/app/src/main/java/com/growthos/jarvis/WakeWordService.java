@@ -537,6 +537,94 @@ public final class WakeWordService extends Service {
                 say(seen == null ? "Boss, I don't read this app." : seen.isEmpty() ? "Boss, I see no text on the screen." : seen, this::endInteraction);
                 return;
             }
+            case HELP:
+                remember(heard, "help");
+                say("Boss, I can open apps, search YouTube or Google, send WhatsApp messages, make phone or WhatsApp calls, set alarms, timers and reminders, "
+                        + "take notes, tell the time, battery and weather, navigate, take a photo, read notifications, and tap, type or scroll on the screen. Or just ask me a question.", this::endInteraction);
+                return;
+            case SET_NAME: {
+                if ("city".equals(c.message)) {
+                    prefs(this).edit().putString(KEY_CITY, c.target).apply();
+                    remember(heard, "city set to " + c.target);
+                    say("Okay Boss, I'll use " + c.target + " for the weather.", this::endInteraction);
+                    return;
+                }
+                String nm = c.target.length() > 30 ? c.target.substring(0, 30) : c.target;
+                nm = nm.substring(0, 1).toUpperCase(java.util.Locale.ROOT) + nm.substring(1);
+                prefs(this).edit().putString(KEY_NAME, nm).apply();
+                remember(heard, "name set to " + nm);
+                say("Okay, I'll call you " + nm + ".", this::endInteraction);
+                return;
+            }
+            case SPEECH_SPEED: {
+                float r = prefs(this).getFloat(KEY_RATE, 1.0f);
+                r = "faster".equals(c.target) ? Math.min(2.0f, r + 0.2f) : "slower".equals(c.target) ? Math.max(0.6f, r - 0.2f) : 1.0f;
+                prefs(this).edit().putFloat(KEY_RATE, r).apply();
+                remember(heard, "speech rate " + r);
+                say("Okay Boss, is this better?", this::endInteraction);
+                return;
+            }
+            case WHATSAPP_CALL:
+                whatsappCall(heard, c);
+                return;
+            case REMINDER: {
+                String task = c.message;
+                if (c.target.startsWith("+")) {
+                    int secs = Integer.parseInt(c.target.substring(1));
+                    String len = secs % 3600 == 0 ? secs / 3600 + " hour" + (secs == 3600 ? "" : "s") : secs % 60 == 0 ? secs / 60 + " minute" + (secs == 60 ? "" : "s") : secs + " seconds";
+                    remember(heard, "reminder in " + len + ": " + task);
+                    say("Okay Boss, I'll remind you to " + task + " in " + len + ".", () -> { AppOpener.open(this, PhoneActions.timer(secs).putExtra(android.provider.AlarmClock.EXTRA_MESSAGE, task)); endInteraction(); });
+                } else {
+                    String[] hm = c.target.split(":");
+                    int h = Integer.parseInt(hm[0]), mi = Integer.parseInt(hm[1]);
+                    String when = String.format(java.util.Locale.ENGLISH, "%d:%02d %s", h % 12 == 0 ? 12 : h % 12, mi, h < 12 ? "AM" : "PM");
+                    remember(heard, "reminder " + when + ": " + task);
+                    say("Okay Boss, I'll remind you to " + task + " at " + when + ".", () -> { AppOpener.open(this, PhoneActions.alarm(h, mi).putExtra(android.provider.AlarmClock.EXTRA_MESSAGE, task)); endInteraction(); });
+                }
+                return;
+            }
+            case NOTE:
+                try { Notes.add(this, c.message); remember(heard, "note saved"); say("Noted, Boss.", this::endInteraction); }
+                catch (Exception e) { remember(heard, "note failed: " + e); say("Boss, I couldn't save the note.", this::endInteraction); }
+                return;
+            case READ_NOTES: remember(heard, "read notes"); say(Notes.speak(this, 5), this::endInteraction); return;
+            case CLEAR_NOTES:
+                say("Delete all your notes, Boss?", () -> listen(r -> {
+                    boolean yes = false; for (String g : r) if (g != null && VoiceCommand.isYes(g)) { yes = true; break; }
+                    if (yes) { Notes.clear(this); remember(heard, "notes deleted"); say("All notes deleted, Boss.", this::endInteraction); }
+                    else { remember(heard, "notes kept"); say("Okay Boss, I kept them.", this::endInteraction); }
+                }));
+                return;
+            case NAVIGATE: {
+                final String place = c.target;
+                remember(heard, "navigate to " + place);
+                say("Starting directions to " + place + ".", () -> { AppOpener.open(this, PhoneActions.navigate(place)); endInteraction(); });
+                return;
+            }
+            case WEATHER: {
+                if (!GeminiClient.online(this)) { remember(heard, "weather offline"); say("Boss, internet is unavailable. I can still perform offline actions.", this::endInteraction); return; }
+                String city = c.target.isEmpty() ? prefs(this).getString(KEY_CITY, "Hyderabad") : c.target;
+                remember(heard, "weather " + city);
+                updateNotification("Checking the weather…", false);
+                new Thread(() -> { String w = Weather.now(city); main.post(() -> { if (mode == Mode.RESPONDING) say(w, this::endInteraction); }); }, "jarvis-weather").start();
+                return;
+            }
+            case PHOTO: {
+                boolean selfie = "selfie".equals(c.target);
+                remember(heard, "photo" + (selfie ? " (selfie)" : ""));
+                say(WhatsAppSender.running() ? "Smile, Boss. Three, two, one." : "Opening the camera, Boss.", () -> {
+                    AppOpener.open(this, PhoneActions.camera(selfie));
+                    // With Jarvis control on, press the shutter once the camera is ready.
+                    if (WhatsAppSender.running()) main.postDelayed(() -> {
+                        String t = WhatsAppSender.tap("shutter");
+                        if (t == null) t = WhatsAppSender.tap("take photo");
+                        if (t == null) t = WhatsAppSender.tap("capture");
+                        remember(heard, t == null ? "camera opened; shutter not found: " + WhatsAppSender.describeScreen() : "photo taken (" + t + ")");
+                    }, 3500);
+                    endInteraction();
+                });
+                return;
+            }
             case READ_NOTIFICATIONS: {
                 if (!JarvisNotifications.connected()) { remember(heard, "notification access off"); say("Boss, turn on notification reading in Jarvis setup first.", this::endInteraction); return; }
                 String r = JarvisNotifications.readRecent(this, c.target, 5);
@@ -709,6 +797,33 @@ public final class WakeWordService extends Service {
         }));
     }
 
+    static final String KEY_CITY = "home_city";
+
+    /** "WhatsApp video call Ravi": confirm by voice, open the chat, Jarvis control taps the call button. */
+    private void whatsappCall(String heard, VoiceCommand c) {
+        String pkg = Contacts.whatsappPackage(this);
+        if (pkg == null) { remember(heard, "WhatsApp not installed"); say("Boss, WhatsApp is not installed.", this::endInteraction); return; }
+        if (!Contacts.allowed(this)) { remember(heard, "contacts permission needed"); say("Boss, please allow contacts in Jarvis setup.", this::endInteraction); return; }
+        AppMatcher.App p = AppMatcher.matchName(c.target, Contacts.withNumbers(this));
+        if (p == null) { remember(heard, "contact not found: " + c.target); say("Boss, I couldn't find " + c.target + " in your contacts.", this::endInteraction); return; }
+        boolean video = "video".equals(c.message);
+        String kind = video ? "video call" : "voice call";
+        say("WhatsApp " + kind + " to " + p.label + ", Boss?", () -> listen(r -> {
+            boolean yes = false;
+            for (String g : r) if (g != null && (VoiceCommand.isYes(g) || g.trim().toLowerCase(java.util.Locale.ROOT).matches("(?:yes\\s+)?call(?:\\s+(?:him|her|them|now))?"))) { yes = true; break; }
+            if (!yes) { remember(heard, "WhatsApp call to " + p.label + " cancelled"); say("Okay Boss, not calling.", this::endInteraction); return; }
+            if (!WhatsAppSender.running()) {
+                remember(heard, "opened chat with " + p.label + " (Jarvis control off)");
+                say("Opening " + p.label + "'s chat. Tap the " + kind + " button, Boss.", () -> { AppOpener.open(this, Contacts.whatsappChat(pkg, p.packageName, "")); endInteraction(); });
+                return;
+            }
+            remember(heard, "WhatsApp " + kind + " to " + p.label);
+            WhatsAppSender.armCall(pkg, video);
+            AppOpener.open(this, Contacts.whatsappChat(pkg, p.packageName, ""));
+            endInteraction();
+        }));
+    }
+
     private static final String CONTROL_OFF = "Boss, turn on Jarvis control in Jarvis setup first.";
 
     /** "call Ravi" or "call 98765 43210": confirms by voice, then calls (or opens the dialer without the permission). */
@@ -773,9 +888,14 @@ public final class WakeWordService extends Service {
 
     // ---------- speaking ----------
 
+    static final String KEY_NAME = "user_name", KEY_RATE = "speech_rate";
+
     private void say(String text, Runnable then) {
         afterSpeech = then;
         if (!ttsReady || tts == null) { main.post(this::speechFinished); return; }
+        String name = prefs(this).getString(KEY_NAME, "Boss");
+        if (!"Boss".equals(name)) text = text.replace("Boss", name);
+        try { tts.setSpeechRate(prefs(this).getFloat(KEY_RATE, 1.0f)); } catch (Exception ignored) { }
         Bundle p = new Bundle();
         tts.speak(text, TextToSpeech.QUEUE_FLUSH, p, "jarvis-" + SystemClock.elapsedRealtime());
     }

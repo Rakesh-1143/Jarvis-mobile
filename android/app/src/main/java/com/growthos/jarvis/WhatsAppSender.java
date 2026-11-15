@@ -270,6 +270,40 @@ public final class WhatsAppSender extends AccessibilityService {
         return s != null && s.performGlobalAction(GLOBAL_ACTION_BACK);
     }
 
+    private static volatile String pendingCall; // "Video call" or "Voice call"
+    private static volatile long callDeadline;
+
+    /** After the user said yes to "WhatsApp video call to X, Boss?": tap the call button once in that chat. */
+    static void armCall(String pkg, boolean video) {
+        pendingPkg = pkg; pendingCall = video ? "Video call" : "Voice call"; callDeadline = SystemClock.elapsedRealtime() + WINDOW_MS;
+    }
+
+    /** Taps WhatsApp's call button, then the "Call" button of its confirmation box if one appears. */
+    private boolean handleCall(AccessibilityNodeInfo root, String pkg) {
+        String want = pendingCall;
+        if (want == null) return false;
+        if (SystemClock.elapsedRealtime() > callDeadline) { pendingCall = null; return true; }
+        if (want.startsWith("tapped")) {
+            // WhatsApp may ask "Start voice call?" with a CALL button.
+            for (AccessibilityNodeInfo n : root.findAccessibilityNodeInfosByText("call")) {
+                CharSequence t = n.getText();
+                if (t != null && t.toString().trim().matches("(?i)call|start call|voice call|video call") && n.isClickable() && "android.widget.Button".contentEquals(n.getClassName() == null ? "" : n.getClassName())) {
+                    n.performAction(AccessibilityNodeInfo.ACTION_CLICK); pendingCall = null; return true;
+                }
+            }
+            return true;
+        }
+        AccessibilityNodeInfo btn = byDescription(root, want, 0);
+        if (btn == null) return true;
+        AccessibilityNodeInfo t = btn;
+        while (t != null && !t.isClickable()) t = t.getParent();
+        if (t != null && t.performAction(AccessibilityNodeInfo.ACTION_CLICK)) {
+            pendingCall = "tapped " + want;
+            main.postDelayed(() -> { if (pendingCall != null && pendingCall.startsWith("tapped")) pendingCall = null; }, 5000);
+        }
+        return true;
+    }
+
     static void arm(String pkg, String text) {
         pendingPkg = pkg; pendingText = text.trim(); deadline = SystemClock.elapsedRealtime() + WINDOW_MS;
         main.removeCallbacks(expire);
@@ -291,6 +325,10 @@ public final class WhatsAppSender extends AccessibilityService {
     }
 
     @Override public void onAccessibilityEvent(AccessibilityEvent e) {
+        if (pendingCall != null && pendingPkg != null && e != null && pendingPkg.contentEquals(e.getPackageName() == null ? "" : e.getPackageName())) {
+            AccessibilityNodeInfo r = getRootInActiveWindow();
+            if (r != null && handleCall(r, pendingPkg)) return;
+        }
         String text = pendingText, pkg = pendingPkg;
         if (text == null || pkg == null || e == null || !pkg.contentEquals(e.getPackageName() == null ? "" : e.getPackageName())) return;
         if (SystemClock.elapsedRealtime() > deadline) { disarm(); return; }
