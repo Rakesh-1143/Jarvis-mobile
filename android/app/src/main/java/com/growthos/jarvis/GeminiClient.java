@@ -31,15 +31,82 @@ final class GeminiClient {
     /** Last few turns, so follow-up questions work. Kept in memory only. */
     private static final Deque<String[]> history = new ArrayDeque<>();
 
+    static final String KEY_ENC = "gemini_key_enc";
+    private static final String KS_ALIAS = "kalki_gemini_key";
+    private static volatile String cachedKey;
+
+    /** Saves the key encrypted with an Android Keystore key (never leaves the phone's secure hardware). */
     static void saveKey(Context c, String key) {
         if (key == null) return;
         key = key.trim();
+        if (key.isEmpty() || key.equals(getKey(c))) return;
         SharedPreferences p = c.getSharedPreferences(PREFS, Context.MODE_PRIVATE);
-        if (key.isEmpty() || key.equals(p.getString(KEY, ""))) return;
-        p.edit().putString(KEY, key).apply();
+        try { p.edit().putString(KEY_ENC, encrypt(key)).remove(KEY).apply(); }
+        catch (Exception e) { p.edit().putString(KEY, key).apply(); }
+        cachedKey = key;
     }
 
-    static boolean hasKey(Context c) { return !c.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getString(KEY, "").isEmpty(); }
+    /** The saved key, or "". Moves an old plain-text key to encrypted storage. */
+    static String getKey(Context c) {
+        String k = cachedKey;
+        if (k != null) return k;
+        SharedPreferences p = c.getSharedPreferences(PREFS, Context.MODE_PRIVATE);
+        String enc = p.getString(KEY_ENC, "");
+        if (!enc.isEmpty()) {
+            try { k = decrypt(enc); } catch (Exception e) { k = ""; }
+        } else {
+            k = p.getString(KEY, "");
+            if (!k.isEmpty()) { try { p.edit().putString(KEY_ENC, encrypt(k)).remove(KEY).apply(); } catch (Exception ignored) { } }
+        }
+        cachedKey = k;
+        return k;
+    }
+
+    static boolean hasKey(Context c) { return !getKey(c).isEmpty(); }
+
+    static boolean keyEncrypted(Context c) { return !c.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getString(KEY_ENC, "").isEmpty(); }
+
+    private static javax.crypto.SecretKey keystoreKey() throws Exception {
+        java.security.KeyStore ks = java.security.KeyStore.getInstance("AndroidKeyStore");
+        ks.load(null);
+        if (ks.containsAlias(KS_ALIAS)) return ((java.security.KeyStore.SecretKeyEntry) ks.getEntry(KS_ALIAS, null)).getSecretKey();
+        javax.crypto.KeyGenerator g = javax.crypto.KeyGenerator.getInstance(android.security.keystore.KeyProperties.KEY_ALGORITHM_AES, "AndroidKeyStore");
+        g.init(new android.security.keystore.KeyGenParameterSpec.Builder(KS_ALIAS,
+                android.security.keystore.KeyProperties.PURPOSE_ENCRYPT | android.security.keystore.KeyProperties.PURPOSE_DECRYPT)
+                .setBlockModes(android.security.keystore.KeyProperties.BLOCK_MODE_GCM)
+                .setEncryptionPaddings(android.security.keystore.KeyProperties.ENCRYPTION_PADDING_NONE)
+                .setKeySize(256).build());
+        return g.generateKey();
+    }
+
+    private static String encrypt(String plain) throws Exception {
+        javax.crypto.Cipher ci = javax.crypto.Cipher.getInstance("AES/GCM/NoPadding");
+        ci.init(javax.crypto.Cipher.ENCRYPT_MODE, keystoreKey());
+        byte[] ct = ci.doFinal(plain.getBytes(StandardCharsets.UTF_8));
+        return android.util.Base64.encodeToString(ci.getIV(), android.util.Base64.NO_WRAP) + ":" + android.util.Base64.encodeToString(ct, android.util.Base64.NO_WRAP);
+    }
+
+    private static String decrypt(String enc) throws Exception {
+        String[] parts = enc.split(":", 2);
+        javax.crypto.Cipher ci = javax.crypto.Cipher.getInstance("AES/GCM/NoPadding");
+        ci.init(javax.crypto.Cipher.DECRYPT_MODE, keystoreKey(), new javax.crypto.spec.GCMParameterSpec(128, android.util.Base64.decode(parts[0], android.util.Base64.NO_WRAP)));
+        return new String(ci.doFinal(android.util.Base64.decode(parts[1], android.util.Base64.NO_WRAP)), StandardCharsets.UTF_8);
+    }
+
+    /** Index in MODELS of the last model that answered; tried first next time (saves a slow failed call). */
+    private static volatile int preferred = 0;
+
+    private static String[] modelOrder() {
+        String[] out = new String[MODELS.length];
+        int p = preferred;
+        out[0] = MODELS[p];
+        for (int i = 0, j = 1; i < MODELS.length; i++) if (i != p) out[j++] = MODELS[i];
+        return out;
+    }
+
+    private static void worked(String model) {
+        for (int i = 0; i < MODELS.length; i++) if (MODELS[i].equals(model)) preferred = i;
+    }
 
     static boolean online(Context c) {
         try {
@@ -51,11 +118,11 @@ final class GeminiClient {
 
     /** Returns the spoken answer, or a short spoken error. Blocking. */
     static String ask(Context c, String question) {
-        String key = c.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getString(KEY, "");
+        String key = getKey(c);
         if (key.isEmpty()) return "Boss, I need your Gemini key for that. Open the KALKI app once after saving it in Settings.";
         if (!online(c)) return "Boss, internet is unavailable. I can still perform offline actions.";
         String last = "Boss, I couldn't reach Gemini right now.";
-        for (String model : MODELS) {
+        for (String model : modelOrder()) {
             try {
                 JSONArray contents = new JSONArray();
                 synchronized (history) {
@@ -82,6 +149,7 @@ final class GeminiClient {
                 JSONObject j = new JSONObject(resp);
                 String text = clean(replyText(j));
                 if (text.isEmpty()) { last = "Boss, Gemini gave no answer. Please try again."; continue; }
+                worked(model);
                 synchronized (history) { history.addLast(new String[]{question, text}); while (history.size() > 3) history.removeFirst(); }
                 return text;
             } catch (Exception e) { last = "Boss, I couldn't reach Gemini right now."; }
@@ -117,12 +185,13 @@ final class GeminiClient {
             + "ALARM target=HH:MM 24-hour. TIMER target=seconds. REMINDER target=HH:MM 24-hour or +seconds from now, message=what to remind. "
             + "READ_NOTIFICATIONS target=app name or \"\". NOTE message=text to save. READ_NOTES. CLEAR_NOTES. NAVIGATE target=place. "
             + "WEATHER target=city or \"\". PHOTO target=photo|selfie. SET_NAME target=what to call the user (message=city to set the weather city instead). "
-            + "SPEECH_SPEED target=faster|slower|normal. HELP. STOP_LISTENING. CANCEL.\n"
+            + "SPEECH_SPEED target=faster|slower|normal. HELP. STOP_LISTENING. CANCEL. REPEAT (say your last reply again). SCREENSHOT. LOCK (lock the phone).\n"
             + "ANSWER answer=1 to 3 short spoken sentences, plain text: use it for questions, chat, maths or facts, and when the request is not one of the actions "
             + "(say briefly what you can't do). Never invent an action or claim you did something. If you don't know a live fact, say so.\n"
             + "Rules: pick the guess that makes most sense. Fix misheard app names to the closest installed app (cloud=Claude, what's up=WhatsApp, you tube=YouTube). "
             + "Never choose banking, UPI, payment or password apps. Keep message text in the user's own words and language. "
             + "Times: 'morning 7' = 07:00, 'evening 6' = 18:00, 'night 9' = 21:00. "
+            + "If an app is open on screen, words like 'search X', 'scroll', 'play the first one', 'tap X' are about that app. "
             + "If it is unclear, use ANSWER to ask one short question. The user is called %s; address them that way in answers.";
 
     /** Last few understood turns, so "send it to him too" style follow-ups work. Memory only. */
@@ -133,17 +202,18 @@ final class GeminiClient {
      * installed app names (never audio, contacts or screen content). Blocking; call off the main thread.
      * Returns {action, target, message, answer}, or null if Gemini can't be reached.
      */
-    static String[] understand(Context c, List<String> guesses, List<String> appNames, String userName) {
-        String key = c.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getString(KEY, "");
+    static String[] understand(Context c, List<String> guesses, List<String> appNames, String onScreen, String userName) {
+        String key = getKey(c);
         if (key.isEmpty() || !online(c)) return null;
         StringBuilder q = new StringBuilder("Heard: ");
         int n = 0;
         for (String g : guesses) { if (g == null || g.trim().isEmpty()) continue; if (n++ > 0) q.append(" | "); q.append(g.trim()); if (n >= 3) break; }
+        if (onScreen != null && !onScreen.isEmpty()) q.append("\nApp open on screen now: ").append(onScreen);
         q.append("\nInstalled apps: ");
         int a = 0;
         for (String name : appNames) { if (a++ > 0) q.append(", "); q.append(name); if (a >= 250) break; }
         String sys = String.format(java.util.Locale.ROOT, BRAIN, userName == null || userName.isEmpty() ? "Boss" : userName);
-        for (String model : MODELS) {
+        for (String model : modelOrder()) {
             try {
                 JSONArray contents = new JSONArray();
                 synchronized (brainHistory) {
@@ -162,9 +232,11 @@ final class GeminiClient {
                 try (OutputStream o = h.getOutputStream()) { o.write(body.toString().getBytes(StandardCharsets.UTF_8)); }
                 int code = h.getResponseCode();
                 String resp = read(code >= 400 ? h.getErrorStream() : h.getInputStream());
+                if ((code == 400 || code == 401 || code == 403) && (resp.contains("API_KEY") || resp.contains("API key"))) return null;
                 if (code != 200) continue;
                 String[] r = parseBrain(replyText(new JSONObject(resp)));
                 if (r == null) continue;
+                worked(model);
                 String first = guesses.isEmpty() || guesses.get(0) == null ? "" : guesses.get(0);
                 synchronized (brainHistory) {
                     brainHistory.addLast(new String[]{first, new JSONObject().put("action", r[0]).put("target", r[1]).put("message", r[2]).put("answer", r[3]).toString()});

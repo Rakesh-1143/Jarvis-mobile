@@ -7,7 +7,7 @@ import java.util.regex.Pattern;
 /** Turns recognized words into one allowed action. Pure Java, unit-tested. */
 public final class VoiceCommand {
     public enum Type { OPEN_APP, SEND_MESSAGE, SEARCH, SCROLL, PLAY_ITEM, MEDIA, BACK, CALL, CALL_CONTROL, TIME, DATE, BATTERY, VOLUME, TORCH, ALARM, TIMER, SETTINGS, ASK_APP,
-        READ_NOTIFICATIONS, WHATSAPP_CALL, REMINDER, NOTE, READ_NOTES, CLEAR_NOTES, NAVIGATE, WEATHER, PHOTO, HELP, SET_NAME, SPEECH_SPEED, TAP, TYPE, HOME, RECENTS, NOTIFICATIONS, READ_SCREEN, STOP_LISTENING, CANCEL, UNKNOWN }
+        READ_NOTIFICATIONS, WHATSAPP_CALL, REMINDER, NOTE, READ_NOTES, CLEAR_NOTES, NAVIGATE, WEATHER, PHOTO, HELP, SET_NAME, SPEECH_SPEED, TAP, TYPE, HOME, RECENTS, NOTIFICATIONS, READ_SCREEN, REPEAT, SCREENSHOT, LOCK, STOP_LISTENING, CANCEL, UNKNOWN }
 
     public final Type type;
     /** For OPEN_APP the app name; for SEND_MESSAGE the person's name; for SEARCH the app ("" = web). */
@@ -159,6 +159,9 @@ public final class VoiceCommand {
     private static final Pattern NAVIGATE = Pattern.compile("^(?:navigate|navigation|directions|direction|take me|drive|route|show me the way)\\s+(?:me\\s+)?(?:to\\s+|for\\s+)?(.+)$|^how (?:do i|to|can i) (?:go|get|reach) (?:to\\s+)?(.+)$");
     private static final Pattern WEATHER = Pattern.compile("^(?:what(?:'s|s| is)?\\s+|how(?:'s|s| is)?\\s+)?(?:the\\s+|today's\\s+)?weather(?:\\s+(?:like|today|now|outside|report|forecast))*(?:\\s+(?:in|at|for)\\s+(.+?))?(?:\\s+today)?$|^(?:will it|is it going to)\\s+rain(?:\\s+today)?(?:\\s+in\\s+(.+))?$");
     private static final Pattern PHOTO = Pattern.compile("^(?:take|click|capture|shoot)\\s+(?:a\\s+|my\\s+)?(photo|picture|pic|selfie|snap|snapshot)$");
+    private static final Pattern REPEAT = Pattern.compile("^(?:repeat(?: that| it| again)?|say (?:that|it) again|what did you (?:just )?say|come again|pardon|sorry what)$");
+    private static final Pattern SCREENSHOT = Pattern.compile("^(?:take |capture |grab )?(?:a )?screen ?shot(?: of (?:this|the screen))?$");
+    private static final Pattern LOCK = Pattern.compile("^(?:lock (?:the |my )?(?:phone|screen|mobile|device)|lock it|screen lock|turn off (?:the )?screen)$");
     private static final Pattern HELP = Pattern.compile("^(?:what can you do|what do you do|help|help me|what are your commands|commands|what can i say)$");
     private static final Pattern SET_CITY = Pattern.compile("^(?:my city is|i live in|set (?:my )?(?:home )?city (?:to|as))\\s+(.+)$");
     private static final Pattern SET_NAME = Pattern.compile("^(?:call me|my name is)\\s+(.+)$");
@@ -181,6 +184,9 @@ public final class VoiceCommand {
     private static VoiceCommand device(String t) {
         Matcher m;
         if (HELP.matcher(t).matches()) return new VoiceCommand(Type.HELP, "");
+        if (REPEAT.matcher(t).matches()) return new VoiceCommand(Type.REPEAT, "");
+        if (SCREENSHOT.matcher(t).matches()) return new VoiceCommand(Type.SCREENSHOT, "");
+        if (LOCK.matcher(t).matches()) return new VoiceCommand(Type.LOCK, "");
         m = SET_CITY.matcher(t);
         if (m.matches()) return new VoiceCommand(Type.SET_NAME, m.group(1).trim(), "city");
         m = SET_NAME.matcher(t);
@@ -353,10 +359,20 @@ public final class VoiceCommand {
             case READ_NOTIFICATIONS: case WEATHER:
                 return new VoiceCommand(type, t);
             case BACK: case HOME: case RECENTS: case NOTIFICATIONS: case READ_SCREEN: case TIME: case DATE: case BATTERY:
-            case READ_NOTES: case CLEAR_NOTES: case HELP: case STOP_LISTENING: case CANCEL:
+            case READ_NOTES: case CLEAR_NOTES: case HELP: case STOP_LISTENING: case CANCEL: case REPEAT: case SCREENSHOT: case LOCK:
                 return new VoiceCommand(type, "");
             default:
                 return null;
+        }
+    }
+
+    /** Actions that read out or change private things: refused while a secure lock screen is showing. */
+    public static boolean isPrivate(Type t) {
+        switch (t) {
+            case READ_NOTIFICATIONS: case READ_NOTES: case CLEAR_NOTES: case READ_SCREEN: case TAP: case TYPE: case SET_NAME: case SCREENSHOT:
+                return true;
+            default:
+                return false;
         }
     }
 

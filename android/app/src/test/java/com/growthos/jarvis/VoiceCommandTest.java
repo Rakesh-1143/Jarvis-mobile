@@ -339,4 +339,26 @@ public class VoiceCommandTest {
         assertNull(VoiceCommand.fromBrain("SEARCH", "youtube", ""));
         assertNull(VoiceCommand.fromBrain("CALL_CONTROL", "hold", ""));
     }
+
+    @Test
+    public void parsesRepeatScreenshotLock() {
+        assertEquals(VoiceCommand.Type.REPEAT, VoiceCommand.parse("repeat that").type);
+        assertEquals(VoiceCommand.Type.REPEAT, VoiceCommand.parse("what did you say").type);
+        assertEquals(VoiceCommand.Type.SCREENSHOT, VoiceCommand.parse("take a screenshot").type);
+        assertEquals(VoiceCommand.Type.SCREENSHOT, VoiceCommand.parse("screenshot").type);
+        assertEquals(VoiceCommand.Type.LOCK, VoiceCommand.parse("lock the phone").type);
+        assertEquals(VoiceCommand.Type.LOCK, VoiceCommand.parse("please lock my phone").type);
+        assertEquals(VoiceCommand.Type.PHOTO, VoiceCommand.parse("take a photo").type);
+        assertEquals(VoiceCommand.Type.STOP_LISTENING, VoiceCommand.parse("stop listening").type);
+        assertEquals(VoiceCommand.Type.LOCK, VoiceCommand.fromBrain("lock", "", "").type);
+    }
+
+    @Test
+    public void privateActionsNeedUnlock() {
+        assertTrue(VoiceCommand.isPrivate(VoiceCommand.Type.READ_NOTIFICATIONS));
+        assertTrue(VoiceCommand.isPrivate(VoiceCommand.Type.READ_NOTES));
+        assertTrue(VoiceCommand.isPrivate(VoiceCommand.Type.TYPE));
+        assertFalse(VoiceCommand.isPrivate(VoiceCommand.Type.TIME));
+        assertFalse(VoiceCommand.isPrivate(VoiceCommand.Type.CALL_CONTROL));
+    }
 }

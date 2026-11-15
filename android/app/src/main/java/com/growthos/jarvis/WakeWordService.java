@@ -462,7 +462,29 @@ public final class WakeWordService extends Service {
     /** Runs one allowed command. fromBrain = the command came from Gemini's reading of the words. */
     private void execute(final String heard, VoiceCommand c, List<String> guesses, List<AppMatcher.App> apps, boolean fromBrain) {
         if (apps == null) apps = launcherApps();
+        if (VoiceCommand.isPrivate(c.type) && phoneLocked()) {
+            remember(heard, "refused on lock screen: " + c.type);
+            say("Boss, please unlock your phone first. I don't do that on the lock screen.", this::endInteraction);
+            return;
+        }
         switch (c.type) {
+            case REPEAT:
+                remember(heard, "repeat");
+                say(lastSpoken.isEmpty() ? "Boss, I haven't said anything yet." : lastSpoken, this::endInteraction);
+                return;
+            case SCREENSHOT: case LOCK: {
+                if (!WhatsAppSender.running()) { remember(heard, "Jarvis control is off"); say(CONTROL_OFF, this::endInteraction); return; }
+                final boolean shot = c.type == VoiceCommand.Type.SCREENSHOT;
+                remember(heard, shot ? "screenshot" : "lock");
+                // Speak first so the screenshot doesn't catch Jarvis's own notification change.
+                say(shot ? "Taking a screenshot, Boss." : "Locking the phone, Boss.", () -> main.postDelayed(() -> {
+                    boolean ok = WhatsAppSender.global(shot ? android.accessibilityservice.AccessibilityService.GLOBAL_ACTION_TAKE_SCREENSHOT
+                            : android.accessibilityservice.AccessibilityService.GLOBAL_ACTION_LOCK_SCREEN);
+                    if (!ok) remember(heard, "failed: " + (shot ? "screenshot" : "lock"));
+                    endInteraction();
+                }, 400));
+                return;
+            }
             case OPEN_APP: {
                 AppMatcher.App app = AppMatcher.match(c.target, apps);
                 if (app == null && !fromBrain && GeminiClient.hasKey(this) && GeminiClient.online(this)) { brain(heard, guesses, apps); return; }
@@ -546,7 +568,7 @@ public final class WakeWordService extends Service {
             case HELP:
                 remember(heard, "help");
                 say("Boss, I can open apps, search YouTube or Google, send WhatsApp messages, make phone or WhatsApp calls, set alarms, timers and reminders, "
-                        + "take notes, tell the time, battery and weather, navigate, take a photo, read notifications, and tap, type or scroll on the screen. Or just ask me a question.", this::endInteraction);
+                        + "take notes, tell the time, battery and weather, navigate, take a photo or screenshot, lock the phone, read notifications, and tap, type or scroll on the screen. Say repeat that to hear me again. Or just ask me a question.", this::endInteraction);
                 return;
             case SET_NAME: {
                 if ("city".equals(c.message)) {
@@ -750,10 +772,16 @@ public final class WakeWordService extends Service {
         main.removeCallbacks(watchdog);
         main.postDelayed(watchdog, RESPONSE_WATCHDOG_MS);
         List<String> names = new ArrayList<>();
-        for (AppMatcher.App a : apps) names.add(a.label);
+        String fg = WhatsAppSender.foregroundApp(), onScreen = "";
+        for (AppMatcher.App a : apps) {
+            if (WhatsAppSender.blocked(a.packageName)) continue; // never tell Gemini which bank or payment apps you use
+            names.add(a.label);
+            if (a.packageName.equals(fg)) onScreen = a.label;
+        }
+        final String screenApp = onScreen;
         final List<AppMatcher.App> appList = apps;
         new Thread(() -> {
-            String[] r = GeminiClient.understand(this, guesses, names, prefs(this).getString(KEY_NAME, "Boss"));
+            String[] r = GeminiClient.understand(this, guesses, names, screenApp, prefs(this).getString(KEY_NAME, "Boss"));
             main.post(() -> {
                 if (mode != Mode.RESPONDING) return;
                 if (r == null) { remember(heard, "brain unavailable"); say("Boss, I couldn't reach Gemini right now.", this::endInteraction); return; }
@@ -889,9 +917,27 @@ public final class WakeWordService extends Service {
     }
 
     /** Apps with an icon in the app drawer. */
+    private boolean phoneLocked() {
+        android.app.KeyguardManager km = (android.app.KeyguardManager) getSystemService(KEYGUARD_SERVICE);
+        return km != null && km.isKeyguardLocked() && km.isKeyguardSecure();
+    }
+
     private List<AppMatcher.App> launcherApps() { return launcherApps(this); }
 
-    static List<AppMatcher.App> launcherApps(Context c) {
+    private static List<AppMatcher.App> appCache;
+    private static long appCacheAt;
+    private static final long APP_CACHE_MS = 2 * 60 * 1000;
+
+    /** Installed apps with a launcher icon. Cached for 2 minutes: reading every label is slow on a busy phone. */
+    static synchronized List<AppMatcher.App> launcherApps(Context c) {
+        long now = SystemClock.elapsedRealtime();
+        if (appCache != null && now - appCacheAt < APP_CACHE_MS) return appCache;
+        appCache = java.util.Collections.unmodifiableList(loadLauncherApps(c));
+        appCacheAt = now;
+        return appCache;
+    }
+
+    private static List<AppMatcher.App> loadLauncherApps(Context c) {
         PackageManager pm = c.getPackageManager();
         Intent i = new Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER);
         List<AppMatcher.App> apps = new ArrayList<>();
@@ -916,8 +962,12 @@ public final class WakeWordService extends Service {
 
     static final String KEY_NAME = "user_name", KEY_RATE = "speech_rate";
 
+    /** Last thing Jarvis said, for "repeat that". */
+    private String lastSpoken = "";
+
     private void say(String text, Runnable then) {
         afterSpeech = then;
+        if (text != null && !text.isEmpty() && !text.equals(lastSpoken) && !text.startsWith("Boss, I haven't said")) lastSpoken = text;
         if (!ttsReady || tts == null) { main.post(this::speechFinished); return; }
         String name = prefs(this).getString(KEY_NAME, "Boss");
         if (!"Boss".equals(name)) text = text.replace("Boss", name);

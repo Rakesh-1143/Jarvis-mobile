@@ -46,8 +46,29 @@ final class SelfTest {
         out.setLength(0); pass = 0; fail = 0;
         out.append("Self-test ").append(DateFormat.getDateTimeInstance(DateFormat.SHORT, DateFormat.SHORT).format(new Date())).append('\n');
         try { quick(); } catch (Throwable t) { check("quick checks crashed", false, String.valueOf(t)); }
-        if (!WhatsAppSender.running()) { info("live YouTube test", "skipped: Jarvis control is off"); finish(done); return; }
-        live(done);
+        brain(() -> {
+            if (!WhatsAppSender.running()) { info("live YouTube test", "skipped: Jarvis control is off"); finish(done); return; }
+            live(done);
+        });
+    }
+
+    /** Live check that the Gemini brain turns a free sentence into an allowed action. Sends one test sentence only. */
+    private void brain(Runnable next) {
+        if (!GeminiClient.hasKey(a) || !GeminiClient.online(a)) { info("brain (Gemini) test", "skipped: no key or no internet"); next.run(); return; }
+        final List<AppMatcher.App> apps = WakeWordService.launcherApps(a);
+        new Thread(() -> {
+            List<String> names = new java.util.ArrayList<>();
+            for (AppMatcher.App x : apps) if (!WhatsAppSender.blocked(x.packageName)) names.add(x.label);
+            long t0 = System.currentTimeMillis();
+            String[] r = GeminiClient.understand(a, java.util.Collections.singletonList("put on some arijit singh songs on you tube"), names, "", "Boss");
+            long ms = System.currentTimeMillis() - t0;
+            a.runOnUiThread(() -> {
+                VoiceCommand c = r == null ? null : VoiceCommand.fromBrain(r[0], r[1], r[2]);
+                check("brain understands a free sentence", c != null && c.type == VoiceCommand.Type.SEARCH,
+                        (r == null ? "no reply" : r[0] + " " + r[1] + " / " + r[2]) + " · " + ms + " ms");
+                next.run();
+            });
+        }, "selftest-brain").start();
     }
 
     private void quick() {
@@ -79,7 +100,7 @@ final class SelfTest {
                 {"ask claude what is ai", "ASK_APP"}, {"tap search", "TAP"}, {"type hello", "TYPE"}, {"go home", "HOME"}, {"read the screen", "READ_SCREEN"},
                 {"read my notifications", "READ_NOTIFICATIONS"}, {"whatsapp video call ravi", "WHATSAPP_CALL"}, {"remind me to drink water at 5 pm", "REMINDER"},
                 {"take a note buy milk", "NOTE"}, {"read my notes", "READ_NOTES"}, {"navigate to charminar", "NAVIGATE"}, {"what's the weather", "WEATHER"},
-                {"take a photo", "PHOTO"}, {"what can you do", "HELP"}, {"who is the prime minister of india", "UNKNOWN"}};
+                {"take a photo", "PHOTO"}, {"what can you do", "HELP"}, {"repeat that", "REPEAT"}, {"take a screenshot", "SCREENSHOT"}, {"lock the phone", "LOCK"}, {"who is the prime minister of india", "UNKNOWN"}};
         int ok = 0; StringBuilder bad = new StringBuilder();
         for (String[] s : samples) { String got = VoiceCommand.parse(s[0]).type.name(); if (got.equals(s[1])) ok++; else bad.append(s[0]).append("->").append(got).append("; "); }
         check("understands " + samples.length + " sample commands", ok == samples.length, ok + "/" + samples.length + (bad.length() > 0 ? " " + bad : ""));
@@ -96,6 +117,7 @@ final class SelfTest {
         AppMatcher.App claude = AppMatcher.match("claude", apps);
         check("Claude accepts a question", claude != null && resolves(PhoneActions.shareText(claude.packageName, "hi")), null);
         check("Gemini key available for questions", GeminiClient.hasKey(a), "save it in KALKI Settings, then open KALKI once");
+        if (GeminiClient.hasKey(a)) check("Gemini key stored encrypted", GeminiClient.keyEncrypted(a), "Android Keystore");
         check("Notification reading on", JarvisNotifications.isOn(a), JarvisNotifications.connected() ? "connected" : "not connected");
         info("unlock greeting", a.getSharedPreferences("jarvis_settings", Context.MODE_PRIVATE).getBoolean(WakeWordService.KEY_GREET, true) ? "on" : "off");
         // Hardware
