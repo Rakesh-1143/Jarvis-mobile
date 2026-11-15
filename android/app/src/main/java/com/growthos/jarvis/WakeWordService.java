@@ -413,7 +413,7 @@ public final class WakeWordService extends Service {
                 boolean down = !"up".equals(c.target);
                 if (!WhatsAppSender.running()) { remember(heard, "scroll: Jarvis control is off"); say("Boss, turn on Jarvis control in Jarvis setup so I can scroll.", this::endInteraction); return; }
                 boolean ok = WhatsAppSender.scroll(down);
-                remember(heard, ok ? "scrolled " + c.target : "could not scroll (works in YouTube and WhatsApp)");
+                remember(heard, ok ? "scrolled " + c.target : "could not scroll; screen: " + WhatsAppSender.describeScreen());
                 if (ok) endInteraction(); else say("Boss, I can scroll only in YouTube and WhatsApp.", this::endInteraction);
                 return;
             }
@@ -421,7 +421,7 @@ public final class WakeWordService extends Service {
                 if (!WhatsAppSender.running()) { remember(heard, "play: Jarvis control is off"); say("Boss, turn on Jarvis control in Jarvis setup so I can play videos.", this::endInteraction); return; }
                 int n = Integer.parseInt(c.target);
                 String title = WhatsAppSender.playVideo(n);
-                remember(heard, title == null ? "no video found on screen" : "played video " + n + ": " + title);
+                remember(heard, title == null ? "no video found; screen: " + WhatsAppSender.describeScreen() : "played video " + n + ": " + title);
                 if (title == null) say("Boss, I couldn't find a video on the screen. Open YouTube first.", this::endInteraction);
                 else say("Playing " + (title.isEmpty() ? "the video" : title) + ".", this::endInteraction);
                 return;
@@ -449,7 +449,9 @@ public final class WakeWordService extends Service {
             }
             case SEARCH: {
                 // "search latest movies" while YouTube is open searches YouTube.
-                if (c.target.isEmpty() && WhatsAppSender.YOUTUBE.equals(WhatsAppSender.foregroundApp())) c = VoiceCommand.parse("search " + c.message + " on youtube");
+                String fg = WhatsAppSender.foregroundApp();
+                if (c.target.isEmpty() && WhatsAppSender.YOUTUBE.equals(fg)) c = VoiceCommand.parse("search " + c.message + " on youtube");
+                else if (c.target.isEmpty()) remember(heard, "web search; screen: " + WhatsAppSender.describeScreen());
                 AppMatcher.App app = c.target.isEmpty() ? null : AppMatcher.match(c.target, apps);
                 if (!c.target.isEmpty() && app == null && !c.target.matches("(?:google|web|internet)")) {
                     remember(heard, "app not found: " + c.target);

@@ -43,14 +43,48 @@ public final class WhatsAppSender extends AccessibilityService {
     @Override public boolean onUnbind(android.content.Intent i) { if (instance == this) instance = null; return super.onUnbind(i); }
     @Override public void onDestroy() { if (instance == this) instance = null; super.onDestroy(); }
 
+    private static boolean allowedPkg(CharSequence p) {
+        return p != null && (YOUTUBE.contentEquals(p) || java.util.Arrays.asList(Contacts.WHATSAPP).contains(p.toString()));
+    }
+
+    /**
+     * Root of the WhatsApp/YouTube window on screen. Looks at the active window first, then at all
+     * app windows (the active one can be the keyboard or a system bar). Null if neither app is on screen.
+     */
+    private AccessibilityNodeInfo appRoot() {
+        AccessibilityNodeInfo r = getRootInActiveWindow();
+        if (r != null && allowedPkg(r.getPackageName())) return r;
+        try {
+            for (android.view.accessibility.AccessibilityWindowInfo w : getWindows()) {
+                if (w.getType() != android.view.accessibility.AccessibilityWindowInfo.TYPE_APPLICATION) continue;
+                AccessibilityNodeInfo wr = w.getRoot();
+                if (wr != null && allowedPkg(wr.getPackageName())) return wr;
+            }
+        } catch (Exception ignored) { }
+        return null;
+    }
+
     /** Package of the app on screen, if it is one this helper may control; else null. */
     static String foregroundApp() {
         WhatsAppSender s = instance;
         if (s == null) return null;
-        AccessibilityNodeInfo root = s.getRootInActiveWindow();
-        if (root == null || root.getPackageName() == null) return null;
-        String p = root.getPackageName().toString();
-        return YOUTUBE.equals(p) || java.util.Arrays.asList(Contacts.WHATSAPP).contains(p) ? p : null;
+        AccessibilityNodeInfo root = s.appRoot();
+        return root == null || root.getPackageName() == null ? null : root.getPackageName().toString();
+    }
+
+    /** For the setup report: what the helper sees (package names only). */
+    static String describeScreen() {
+        WhatsAppSender s = instance;
+        if (s == null) return "helper not connected";
+        AccessibilityNodeInfo a = s.getRootInActiveWindow();
+        StringBuilder b = new StringBuilder("active=").append(a == null ? "none" : a.getPackageName()).append(" windows=");
+        try {
+            for (android.view.accessibility.AccessibilityWindowInfo w : s.getWindows()) {
+                AccessibilityNodeInfo wr = w.getRoot();
+                b.append(wr == null ? "?" : wr.getPackageName()).append('/').append(w.getType()).append(' ');
+            }
+        } catch (Exception e) { b.append("error"); }
+        return b.toString().trim();
     }
 
     static boolean running() { return instance != null; }
@@ -58,8 +92,9 @@ public final class WhatsAppSender extends AccessibilityService {
     /** Scrolls the main list of the app on screen. */
     static boolean scroll(boolean down) {
         WhatsAppSender s = instance;
-        if (s == null || foregroundApp() == null) return false;
-        AccessibilityNodeInfo root = s.getRootInActiveWindow();
+        if (s == null) return false;
+        AccessibilityNodeInfo root = s.appRoot();
+        if (root == null) return false;
         AccessibilityNodeInfo list = biggestScrollable(root, 0);
         if (list != null && list.performAction(down ? AccessibilityNodeInfo.ACTION_SCROLL_FORWARD : AccessibilityNodeInfo.ACTION_SCROLL_BACKWARD)) return true;
         // Fallback: a finger swipe in the middle of the screen.
@@ -77,8 +112,9 @@ public final class WhatsAppSender extends AccessibilityService {
     /** Taps the n-th video (1 = top) visible in YouTube. */
     static String playVideo(int n) {
         WhatsAppSender s = instance;
-        if (s == null || !YOUTUBE.equals(foregroundApp())) return null;
-        AccessibilityNodeInfo root = s.getRootInActiveWindow();
+        if (s == null) return null;
+        AccessibilityNodeInfo root = s.appRoot();
+        if (root == null || !YOUTUBE.contentEquals(root.getPackageName())) return null;
         List<AccessibilityNodeInfo> found = new ArrayList<>();
         collectVideos(root, found, 0);
         if (found.isEmpty()) return null;
