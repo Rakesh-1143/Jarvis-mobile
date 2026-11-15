@@ -86,8 +86,7 @@ public final class AssistantSetupActivity extends Activity {
         section("Assistant");
         row("Default digital assistant", (isDefault || roleHeld) ? "Yes, KALKI is selected" : "No", isDefault || roleHeld);
         row("Assistant service", assistantServiceDeclared() ? (readyAt > 0 ? "Registered · last started " + time(readyAt) : "Registered · not started yet") : "Missing", assistantServiceDeclared());
-        String hotword = diag.getString(JarvisVoiceInteractionService.KEY_HOTWORD, null);
-        row("Hardware hotword (DSP)", hotword != null ? hotword : "Unknown until KALKI is the default assistant", null);
+        row("Hardware hotword (DSP)", "Not available to normal apps (Android keeps this API for system apps). Jarvis will use a software wake word.", null);
         button("Choose KALKI as default assistant", v -> openAssistantSettings());
         note("Android shows its own page. Tap \"Digital assistant app\" (or \"Default digital assistant app\") and pick KALKI. You can change it back any time.");
 
