@@ -36,6 +36,11 @@ public final class WakeWordEngine implements AutoCloseable {
     private long skippedChunks, totalChunks;
     /** Which ONNX Runtime backend is in use ("XNNPACK" or "CPU"). */
     public final String backend;
+    private boolean skipSilence = true;
+    /** Training turns this off so every chunk gets real features. */
+    public void setSkipSilence(boolean on) { skipSilence = on; }
+    /** True when the last chunk was skipped as silence (no new features). */
+    public boolean lastSkipped;
     /** Loudness of the last chunk (RMS of 16-bit samples). */
     public volatile float lastRms;
 
@@ -107,13 +112,14 @@ public final class WakeWordEngine implements AutoCloseable {
         lastRms = (float) Math.sqrt(sum / CHUNK);
         quietChunks = lastRms < QUIET_RMS ? quietChunks + 1 : 0;
         totalChunks++;
-        if (quietChunks > QUIET_CHUNKS_BEFORE_SKIP && !features.isEmpty()) {
+        if (skipSilence && quietChunks > QUIET_CHUNKS_BEFORE_SKIP && !features.isEmpty()) {
             // Nothing but near-silence for the whole embedding window: its embedding would be the
             // same as the last one, so reuse it and skip the expensive models. Saves battery.
             features.add(features.peekLast());
             trim(features, FEATURE_MAX);
             skippedChunks++;
             predictions++;
+            lastSkipped = true;
             return 0f;
         }
 
@@ -122,6 +128,7 @@ public final class WakeWordEngine implements AutoCloseable {
         for (float[] f : melFrames) { if (i++ >= skip) last[j++] = f; }
         features.add(embedding(last, 0));
         trim(features, FEATURE_MAX);
+        lastSkipped = false;
 
         float score = predict();
         return predictions++ < WARMUP_PREDICTIONS ? 0f : score;
@@ -153,6 +160,26 @@ public final class WakeWordEngine implements AutoCloseable {
              OrtSession.Result r = wake.run(Collections.singletonMap(wakeIn, t))) {
             return ((float[][]) r.get(0).getValue())[0][0];
         }
+    }
+
+    /** The newest 16 x 96 feature window, flattened (input of the wake model and of VoiceVerifier). */
+    public float[] lastWindow() {
+        float[] out = new float[FEATURE_WINDOW * FEATURES];
+        int skip = features.size() - FEATURE_WINDOW, i = 0, j = 0;
+        for (float[] f : features) { if (i++ >= skip) System.arraycopy(f, 0, out, (j++) * FEATURES, FEATURES); }
+        return out;
+    }
+
+    /** The newest feature frame (96 numbers). */
+    public float[] lastFrame() { return features.peekLast().clone(); }
+
+    /** The newest {@code n} feature frames, oldest first. */
+    public float[][] lastFrames(int n) {
+        n = Math.min(n, features.size());
+        float[][] out = new float[n][];
+        int skip = features.size() - n, i = 0, j = 0;
+        for (float[] f : features) { if (i++ >= skip) out[j++] = f; }
+        return out;
     }
 
     /** Share of chunks skipped as silence, 0..1. */

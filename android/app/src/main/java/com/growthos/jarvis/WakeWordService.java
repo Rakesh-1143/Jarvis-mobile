@@ -61,6 +61,7 @@ public final class WakeWordService extends Service {
     static final String PREFS = "jarvis_settings";
     static final String KEY_ENABLED = "wake_enabled", KEY_PAUSED_UNTIL = "paused_until", KEY_THRESHOLD = "wake_threshold";
     static final String KEY_LAST_WAKE = "last_wake_at", KEY_LAST_SCORE = "last_wake_score", KEY_LAST_COMMAND = "last_command";
+    static final String KEY_PHRASE = "wake_phrase", KEY_TRAINED_AT = "voice_trained_at";
     static final String KEY_STARTED_AT = "listening_started_at", KEY_START_BATTERY = "listening_start_battery", KEY_CPU = "wake_cpu_ms", KEY_ERROR = "last_error";
     private static final String CHANNEL = "jarvis_wake_word";
     private static final int NOTIFICATION_ID = 812;
@@ -71,7 +72,7 @@ public final class WakeWordService extends Service {
     static volatile boolean running;
     static volatile String state = "Off";
     /** Live values for the setup screen (same process; nothing is stored). */
-    static volatile float liveDb = -120f, liveScore, bestScore;
+    static volatile float liveDb = -120f, liveScore, bestScore, liveMatch, bestMatch;
     static volatile long bestScoreAt;
     static volatile String engineInfo = "";
 
@@ -170,8 +171,8 @@ public final class WakeWordService extends Service {
         if (stopping) return;
         if (!isEnabled(this)) { stopSelf(); return; }
         mode = Mode.WAITING;
-        state = "Listening for \"Hey Jarvis\"";
-        updateNotification("Say \"Hey Jarvis\". Audio stays on this phone.", false);
+        state = "Listening for \"" + prefs(this).getString(KEY_PHRASE, "Hey Jarvis") + "\"";
+        updateNotification("Say \"" + prefs(this).getString(KEY_PHRASE, "Hey Jarvis") + "\". Audio stays on this phone.", false);
         if (audioThread != null && audioThread.isAlive()) return;
         audioThread = new Thread(this::audioLoop, "jarvis-wake");
         audioThread.setPriority(Thread.NORM_PRIORITY - 1);
@@ -194,6 +195,12 @@ public final class WakeWordService extends Service {
         } catch (SecurityException e) { fail("Microphone permission is missing"); return; }
         if (rec.getState() != AudioRecord.STATE_INITIALIZED) { rec.release(); retryLater("Microphone is busy. Trying again."); return; }
         float threshold = prefs(this).getFloat(KEY_THRESHOLD, DEFAULT_THRESHOLD);
+        // Personal check from "Train my voice" (if done). Sensitivity loosens or tightens it.
+        TemplateMatcher personal = TemplateMatcher.load(TemplateMatcher.file(this));
+        float personalLimit = personal == null ? 0f : personal.threshold * (threshold <= 0.36f ? 1.25f : threshold >= 0.64f ? 0.85f : 1f);
+        int span = personal == null ? 0 : personal.span();
+        // The built-in model only knows "Hey Jarvis"; for another trained phrase only the personal check is used.
+        boolean useBase = AppMatcher.norm(prefs(this).getString(KEY_PHRASE, "Hey Jarvis")).replace(" ", "").equals("heyjarvis");
         short[] chunk = new short[WakeWordEngine.CHUNK];
         long cpuNanos = 0, chunks = 0;
         AudioManager am = (AudioManager) getSystemService(AUDIO_SERVICE);
@@ -205,16 +212,27 @@ public final class WakeWordService extends Service {
                 if (n != chunk.length) continue;
                 long t0 = SystemClock.elapsedRealtimeNanos();
                 float score = engine.process(chunk);
-                cpuNanos += SystemClock.elapsedRealtimeNanos() - t0;
                 liveDb = engine.lastRms <= 1f ? -90f : (float) (20 * Math.log10(engine.lastRms / 32768.0));
                 liveScore = score;
-                long now = SystemClock.elapsedRealtime();
-                if (score >= bestScore || now - bestScoreAt > 10000) { bestScore = score; bestScoreAt = now; }
+                float match = 0f;
+                if (personal != null && !engine.lastSkipped) {
+                    float d = personal.distance(engine.lastFrames(span));
+                    match = d <= 0 ? 2f : Math.min(2f, personalLimit / d);
+                }
+                liveMatch = match;
+                cpuNanos += SystemClock.elapsedRealtimeNanos() - t0;
                 if (++chunks % 750 == 0) { // about once a minute
                     prefs(this).edit().putFloat(KEY_CPU, cpuNanos / 1e6f / chunks).apply();
                     engineInfo = engine.backend + String.format(Locale.US, " · %.0f%% silence skipped", engine.skippedShare() * 100);
                 }
-                if (score >= threshold && !inCall(am)) {
+                long now = SystemClock.elapsedRealtime();
+                if (now - bestScoreAt > 10000) { bestScore = 0; bestMatch = 0; bestScoreAt = now; }
+                bestScore = Math.max(bestScore, score);
+                bestMatch = Math.max(bestMatch, match);
+                boolean woke = (useBase && score >= threshold) || match >= 1f;
+                if (!woke) continue;
+                score = Math.max(score, Math.min(1f, match));
+                if (!inCall(am)) {
                     final float s = score;
                     mode = Mode.RESPONDING;
                     main.post(() -> onWake(s));

@@ -111,6 +111,16 @@ public final class AssistantSetupActivity extends Activity {
         row("Always-on listening", on ? (WakeWordService.running ? WakeWordService.state : "On, but not running") : "Off", on ? (Boolean) WakeWordService.running : null);
         button(on ? "Turn off Hey Jarvis" : "Turn on Hey Jarvis", v -> toggleWake());
         note("When on, the phone checks for \"Hey Jarvis\" on the phone itself. That audio is never saved or sent. After you say it, your command goes to the phone's speech recognizer (Google app).");
+        long trainedAt = sp.getLong(WakeWordService.KEY_TRAINED_AT, 0);
+        boolean trained = trainedAt > 0 && TemplateMatcher.file(this).exists();
+        row("Your voice", trained ? "Trained for \"" + sp.getString(WakeWordService.KEY_PHRASE, "Hey Jarvis") + "\" on " + time(trainedAt) : "Not trained yet (recommended: Jarvis then wakes for your voice and accent)", trained);
+        button(trained ? "Train my voice again" : "Train my voice", v -> startActivity(new Intent(this, VoiceTrainingActivity.class)));
+        if (trained) button("Delete my voice training", v -> {
+            TemplateMatcher.file(this).delete();
+            sp.edit().remove(WakeWordService.KEY_TRAINED_AT).remove(WakeWordService.KEY_PHRASE).apply();
+            if (WakeWordService.running) { stopService(new Intent(this, WakeWordService.class)); WakeWordService.start(this, null); }
+            render();
+        });
         float threshold = sp.getFloat(WakeWordService.KEY_THRESHOLD, 0.5f);
         row("Sensitivity", threshold <= 0.36f ? "High (wakes more easily)" : threshold >= 0.64f ? "Low (fewer false wakes)" : "Normal", null);
         button("Change sensitivity", v -> {
@@ -125,7 +135,7 @@ public final class AssistantSetupActivity extends Activity {
             liveView.setPadding(dp(12), dp(10), dp(12), dp(10));
             liveView.setBackgroundColor(CARD);
             list.addView(liveView);
-            note("Live check: say \"Hey Jarvis\" now. Mic level should jump when you talk. A wake score above " + String.format(Locale.US, "%.2f", threshold) + " wakes Jarvis.");
+            note("Live check: say your wake phrase now. Mic level should jump when you talk. Built-in model above " + String.format(Locale.US, "%.2f", threshold) + ", or your voice match at 1.00, wakes Jarvis.");
             updateLive();
         } else liveView = null;
         long lastWake = sp.getLong(WakeWordService.KEY_LAST_WAKE, 0);
@@ -182,8 +192,8 @@ public final class AssistantSetupActivity extends Activity {
     private void updateLive() {
         ui.removeCallbacks(liveTick);
         if (liveView == null || !WakeWordService.running) return;
-        String s = String.format(Locale.US, "Mic level: %.0f dB%s\nWake score now: %.2f · best in last 10 s: %.2f",
-                WakeWordService.liveDb, WakeWordService.liveDb < -85 ? " (silent?)" : "", WakeWordService.liveScore, WakeWordService.bestScore);
+        String s = String.format(Locale.US, "Mic level: %.0f dB%s\nBuilt-in model: now %.2f · best in 10 s %.2f\nYour voice match: now %.2f · best in 10 s %.2f (1.00 wakes)",
+                WakeWordService.liveDb, WakeWordService.liveDb < -85 ? " (silent?)" : "", WakeWordService.liveScore, WakeWordService.bestScore, WakeWordService.liveMatch, WakeWordService.bestMatch);
         if (!WakeWordService.engineInfo.isEmpty()) s += "\nEngine: " + WakeWordService.engineInfo;
         liveView.setText(s);
         liveText = s.replace("\n", " · ");
