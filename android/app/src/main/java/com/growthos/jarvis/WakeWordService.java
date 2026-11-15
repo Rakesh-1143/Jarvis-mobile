@@ -291,7 +291,7 @@ public final class WakeWordService extends Service {
 
     // ---------- after "Hey Jarvis" ----------
 
-    private final Runnable watchdog = () -> { Log.w(TAG, "response watchdog"); endInteraction(); };
+    private final Runnable watchdog = () -> { Log.w(TAG, "response watchdog"); remember("", "stopped waiting after 30 s"); endInteraction(); };
 
     /** score < 0 means started by the assist gesture, not the wake word. */
     private void onWake(float score) {
@@ -327,6 +327,7 @@ public final class WakeWordService extends Service {
                 String msg = e == SpeechRecognizer.ERROR_NETWORK || e == SpeechRecognizer.ERROR_NETWORK_TIMEOUT || e == SpeechRecognizer.ERROR_SERVER
                         ? "Boss, internet is unavailable. I can still perform offline actions once speech works offline."
                         : e == SpeechRecognizer.ERROR_NO_MATCH || e == SpeechRecognizer.ERROR_SPEECH_TIMEOUT ? "Sorry Boss, I didn't catch that." : "Sorry Boss, I couldn't listen just now.";
+                remember("", "speech error " + e + " (" + speechError(e) + ")");
                 say(msg, WakeWordService.this::endInteraction);
             }
             @Override public void onReadyForSpeech(Bundle b) { }
@@ -347,7 +348,20 @@ public final class WakeWordService extends Service {
         main.postDelayed(commandTimeout, COMMAND_TIMEOUT_MS);
     }
 
-    private final Runnable commandTimeout = () -> { if (recognizer != null) { releaseRecognizer(); endInteraction(); } };
+    private final Runnable commandTimeout = () -> { if (recognizer != null) { remember("", "no answer from speech recognizer in 12 s"); releaseRecognizer(); endInteraction(); } };
+
+    private static String speechError(int e) {
+        switch (e) {
+            case SpeechRecognizer.ERROR_NO_MATCH: return "no words recognized";
+            case SpeechRecognizer.ERROR_SPEECH_TIMEOUT: return "no speech heard";
+            case SpeechRecognizer.ERROR_NETWORK: case SpeechRecognizer.ERROR_NETWORK_TIMEOUT: case SpeechRecognizer.ERROR_SERVER: return "network";
+            case SpeechRecognizer.ERROR_AUDIO: return "microphone busy or audio error";
+            case SpeechRecognizer.ERROR_RECOGNIZER_BUSY: return "recognizer busy";
+            case SpeechRecognizer.ERROR_INSUFFICIENT_PERMISSIONS: return "permission";
+            case SpeechRecognizer.ERROR_CLIENT: return "client";
+            default: return "other";
+        }
+    }
 
     private void releaseRecognizer() {
         main.removeCallbacks(commandTimeout);
