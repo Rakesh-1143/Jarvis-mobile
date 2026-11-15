@@ -283,4 +283,89 @@ public final class VoiceCommand {
         who = who.trim().replaceFirst("\\s+(?:on|in)\\s+whatsapp$", "");
         return new VoiceCommand(Type.SEND_MESSAGE, who, what == null ? "" : what.trim());
     }
+
+    private static final Pattern HHMM = Pattern.compile("([01]?\\d|2[0-3]):([0-5]\\d)");
+    private static final Pattern SETTING_PAGES = Pattern.compile("wifi|bluetooth|mobile data|data|hotspot|location|gps|display|brightness|sound|battery|apps|storage|security|date and time|airplane mode|flight mode");
+
+    /**
+     * Turns the brain's (Gemini's) choice into a command, checking every field. Returns null for
+     * an unknown action or a bad value, so the brain can only pick actions Jarvis already allows.
+     * UNKNOWN from the brain is also refused (null): the caller speaks the brain's answer instead.
+     */
+    public static VoiceCommand fromBrain(String action, String target, String message) {
+        if (action == null) return null;
+        Type type;
+        try { type = Type.valueOf(action.trim().toUpperCase(Locale.ROOT)); } catch (IllegalArgumentException e) { return null; }
+        String t = target == null ? "" : target.trim(), m = message == null ? "" : message.trim();
+        String tl = t.toLowerCase(Locale.ROOT);
+        if (t.length() > 80 || m.length() > 500) return null;
+        switch (type) {
+            case OPEN_APP: case CALL: case TAP: case NAVIGATE:
+                return t.isEmpty() ? null : new VoiceCommand(type, t);
+            case SEND_MESSAGE:
+                return t.isEmpty() ? null : new VoiceCommand(type, t, m);
+            case SEARCH:
+                return m.isEmpty() ? null : new VoiceCommand(type, t, m);
+            case WHATSAPP_CALL:
+                return t.isEmpty() ? null : new VoiceCommand(type, t, m.equalsIgnoreCase("video") ? "video" : "voice");
+            case ASK_APP:
+                if (tl.equals("cloud")) tl = "claude";
+                return tl.isEmpty() || m.isEmpty() ? null : new VoiceCommand(type, tl, m);
+            case TYPE: case NOTE:
+                return m.isEmpty() ? null : new VoiceCommand(type, "", m);
+            case SCROLL:
+                return tl.equals("up") || tl.equals("down") ? new VoiceCommand(type, tl) : tl.isEmpty() ? new VoiceCommand(type, "down") : null;
+            case PLAY_ITEM: {
+                int n = number(tl);
+                return n >= 1 && n <= 6 ? new VoiceCommand(type, String.valueOf(n)) : null;
+            }
+            case MEDIA:
+                return tl.matches("play|pause|next|previous") ? new VoiceCommand(type, tl) : null;
+            case CALL_CONTROL:
+                return tl.matches("answer|reject|end") ? new VoiceCommand(type, tl) : null;
+            case VOLUME:
+                return tl.matches("up|down|mute|unmute|max") ? new VoiceCommand(type, tl) : null;
+            case TORCH:
+                return tl.matches("on|off") ? new VoiceCommand(type, tl) : null;
+            case SETTINGS:
+                tl = tl.replace("wi-fi", "wifi").replace("wi fi", "wifi");
+                return SETTING_PAGES.matcher(tl).matches() ? new VoiceCommand(type, tl) : null;
+            case ALARM: {
+                String c = hhmm(tl);
+                return c == null ? null : new VoiceCommand(type, c);
+            }
+            case TIMER: {
+                int s = number(tl);
+                return s >= 1 && s <= 86400 ? new VoiceCommand(type, String.valueOf(s)) : null;
+            }
+            case REMINDER: {
+                if (m.isEmpty()) return null;
+                if (tl.startsWith("+")) { int s = number(tl.substring(1)); return s >= 1 && s <= 86400 ? new VoiceCommand(type, "+" + s, m) : null; }
+                String c = hhmm(tl);
+                return c == null ? null : new VoiceCommand(type, c, m);
+            }
+            case PHOTO:
+                return new VoiceCommand(type, tl.equals("selfie") ? "selfie" : "photo");
+            case SET_NAME:
+                return t.isEmpty() || t.length() > 40 ? null : new VoiceCommand(type, t, m.equalsIgnoreCase("city") ? "city" : "");
+            case SPEECH_SPEED:
+                return tl.matches("faster|slower|normal") ? new VoiceCommand(type, tl) : null;
+            case READ_NOTIFICATIONS: case WEATHER:
+                return new VoiceCommand(type, t);
+            case BACK: case HOME: case RECENTS: case NOTIFICATIONS: case READ_SCREEN: case TIME: case DATE: case BATTERY:
+            case READ_NOTES: case CLEAR_NOTES: case HELP: case STOP_LISTENING: case CANCEL:
+                return new VoiceCommand(type, "");
+            default:
+                return null;
+        }
+    }
+
+    private static int number(String s) {
+        try { return Integer.parseInt(s.trim()); } catch (Exception e) { return -1; }
+    }
+
+    private static String hhmm(String s) {
+        Matcher m = HHMM.matcher(s.trim());
+        return m.matches() ? String.format(Locale.ROOT, "%02d:%02d", Integer.parseInt(m.group(1)), Integer.parseInt(m.group(2))) : null;
+    }
 }

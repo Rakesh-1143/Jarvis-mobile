@@ -300,4 +300,43 @@ public class VoiceCommandTest {
         is("open whatsapp", VoiceCommand.Type.OPEN_APP, "whatsapp");
         assertEquals("raining", Weather.describe(63));
     }
+
+    @Test
+    public void brainChoicesAreChecked() {
+        VoiceCommand c = VoiceCommand.fromBrain("open_app", "Instagram", "");
+        assertEquals(VoiceCommand.Type.OPEN_APP, c.type);
+        assertEquals("Instagram", c.target);
+        c = VoiceCommand.fromBrain("SEND_MESSAGE", "Ravi", "I will be late");
+        assertEquals(VoiceCommand.Type.SEND_MESSAGE, c.type);
+        assertEquals("I will be late", c.message);
+        assertEquals("07:05", VoiceCommand.fromBrain("ALARM", "7:05", "").target);
+        assertEquals("+600", VoiceCommand.fromBrain("REMINDER", "+600", "drink water").target);
+        assertEquals("18:00", VoiceCommand.fromBrain("REMINDER", "18:00", "call mom").target);
+        assertEquals("300", VoiceCommand.fromBrain("TIMER", "300", "").target);
+        assertEquals("claude", VoiceCommand.fromBrain("ASK_APP", "Cloud", "write a poem").target);
+        assertEquals("video", VoiceCommand.fromBrain("WHATSAPP_CALL", "Ravi", "VIDEO").message);
+        assertEquals("wifi", VoiceCommand.fromBrain("SETTINGS", "Wi-Fi", "").target);
+        assertEquals("down", VoiceCommand.fromBrain("SCROLL", "", "").target);
+        assertEquals("2", VoiceCommand.fromBrain("PLAY_ITEM", "2", "").target);
+        assertEquals(VoiceCommand.Type.TIME, VoiceCommand.fromBrain("TIME", "", "").type);
+        assertEquals(VoiceCommand.Type.STOP_LISTENING, VoiceCommand.fromBrain("STOP_LISTENING", "", "").type);
+    }
+
+    @Test
+    public void brainCannotInventActions() {
+        assertNull(VoiceCommand.fromBrain("DELETE_ALL", "x", ""));
+        assertNull(VoiceCommand.fromBrain("UNKNOWN", "", ""));
+        assertNull(VoiceCommand.fromBrain(null, "", ""));
+        assertNull(VoiceCommand.fromBrain("ALARM", "25:00", ""));
+        assertNull(VoiceCommand.fromBrain("ALARM", "seven", ""));
+        assertNull(VoiceCommand.fromBrain("TIMER", "0", ""));
+        assertNull(VoiceCommand.fromBrain("TIMER", "999999", ""));
+        assertNull(VoiceCommand.fromBrain("REMINDER", "+60", ""));
+        assertNull(VoiceCommand.fromBrain("VOLUME", "loud", ""));
+        assertNull(VoiceCommand.fromBrain("SETTINGS", "developer options", ""));
+        assertNull(VoiceCommand.fromBrain("PLAY_ITEM", "9", ""));
+        assertNull(VoiceCommand.fromBrain("OPEN_APP", "", ""));
+        assertNull(VoiceCommand.fromBrain("SEARCH", "youtube", ""));
+        assertNull(VoiceCommand.fromBrain("CALL_CONTROL", "hold", ""));
+    }
 }

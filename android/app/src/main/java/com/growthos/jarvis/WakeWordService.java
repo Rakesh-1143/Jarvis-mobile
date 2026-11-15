@@ -456,10 +456,16 @@ public final class WakeWordService extends Service {
                 if (c.type == VoiceCommand.Type.UNKNOWN && gc.type != VoiceCommand.Type.UNKNOWN) { c = gc; text = g; }
             }
         }
-        final String heard = text;
+        execute(text, c, guesses, apps, false);
+    }
+
+    /** Runs one allowed command. fromBrain = the command came from Gemini's reading of the words. */
+    private void execute(final String heard, VoiceCommand c, List<String> guesses, List<AppMatcher.App> apps, boolean fromBrain) {
+        if (apps == null) apps = launcherApps();
         switch (c.type) {
             case OPEN_APP: {
                 AppMatcher.App app = AppMatcher.match(c.target, apps);
+                if (app == null && !fromBrain && GeminiClient.hasKey(this) && GeminiClient.online(this)) { brain(heard, guesses, apps); return; }
                 if (app == null) { remember(heard, "app not found: " + c.target); say("Boss, I could not find " + c.target + ". That application is not installed.", this::endInteraction); return; }
                 Intent launch = getPackageManager().getLaunchIntentForPackage(app.packageName);
                 if (launch == null) { remember(heard, app.label + " cannot be opened"); say("Boss, " + app.label + " cannot be opened.", this::endInteraction); return; }
@@ -726,18 +732,38 @@ public final class WakeWordService extends Service {
                     }
                 }
                 if (heard.isEmpty()) { remember(heard, "nothing understood"); say("Sorry Boss, I didn't catch that.", this::endInteraction); return; }
-                // Anything else is a question for Gemini (only the words are sent, with the user's own key).
-                remember(heard, "asked Gemini");
-                updateNotification("Thinking…", false);
-                main.removeCallbacks(watchdog);
-                main.postDelayed(watchdog, RESPONSE_WATCHDOG_MS);
-                final String q = heard;
-                new Thread(() -> {
-                    String answer = GeminiClient.ask(this, q);
-                    main.post(() -> { if (mode == Mode.RESPONDING) say(answer, this::endInteraction); });
-                }, "jarvis-gemini").start();
+                if (fromBrain) { remember(heard, "not understood"); say("Sorry Boss, I didn't understand that.", this::endInteraction); return; }
+                brain(heard, guesses, apps);
             }
         }
+    }
+
+    /**
+     * The "brain": Gemini reads what was said (all recognizer guesses) and picks one of Jarvis's
+     * allowed actions, or answers the question. Its choice is checked by VoiceCommand.fromBrain, and
+     * risky actions still ask first (calls, messages). Only words and app names are sent, never audio.
+     */
+    private void brain(String heard, List<String> guesses, List<AppMatcher.App> apps) {
+        if (!GeminiClient.hasKey(this)) { remember(heard, "not a known command (no Gemini key)"); say("Boss, I didn't understand that. Save your Gemini key in KALKI so I can understand more.", this::endInteraction); return; }
+        if (!GeminiClient.online(this)) { remember(heard, "not a known command (offline)"); say("Boss, internet is unavailable. I can still perform offline actions.", this::endInteraction); return; }
+        updateNotification("Thinking…", false);
+        main.removeCallbacks(watchdog);
+        main.postDelayed(watchdog, RESPONSE_WATCHDOG_MS);
+        List<String> names = new ArrayList<>();
+        for (AppMatcher.App a : apps) names.add(a.label);
+        final List<AppMatcher.App> appList = apps;
+        new Thread(() -> {
+            String[] r = GeminiClient.understand(this, guesses, names, prefs(this).getString(KEY_NAME, "Boss"));
+            main.post(() -> {
+                if (mode != Mode.RESPONDING) return;
+                if (r == null) { remember(heard, "brain unavailable"); say("Boss, I couldn't reach Gemini right now.", this::endInteraction); return; }
+                if ("ANSWER".equals(r[0])) { remember(heard, "answered"); say(r[3].isEmpty() ? "Sorry Boss, I don't know." : r[3], this::endInteraction); return; }
+                VoiceCommand bc = VoiceCommand.fromBrain(r[0], r[1], r[2]);
+                if (bc == null) { remember(heard, "brain gave unknown action " + r[0]); say(r[3].isEmpty() ? "Sorry Boss, I didn't understand that." : r[3], this::endInteraction); return; }
+                remember(heard, "understood as " + bc.type + (bc.target.isEmpty() ? "" : " " + bc.target));
+                execute(heard, bc, guesses, appList, true);
+            });
+        }, "jarvis-brain").start();
     }
 
     /**
