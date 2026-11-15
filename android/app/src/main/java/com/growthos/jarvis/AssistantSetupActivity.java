@@ -198,6 +198,15 @@ public final class AssistantSetupActivity extends Activity {
         boolean online = isOnline();
         row("Internet", online ? "Connected" : "Offline", online);
 
+        section("Self-test");
+        note("Checks every command on this phone by itself. If Jarvis control is on, it also opens YouTube, searches, scrolls and comes back here (about 15 seconds). It never calls anyone, sets alarms or sends messages.");
+        button("Run self-test", v -> {
+            Toast.makeText(this, "Self-test running… please don't touch the phone for 15 seconds", Toast.LENGTH_LONG).show();
+            new SelfTest(this).run(this::render);
+        });
+        String st = SelfTest.last(this);
+        if (st != null) row("Last self-test", st.trim(), st.contains("\nFAIL ") || st.startsWith("FAIL") ? Boolean.FALSE : Boolean.TRUE);
+
         section("Share results");
         button("Copy report", v -> copyReport());
         note("Paste the report in the KALKI project chat so Claude can see your phone's real results.");

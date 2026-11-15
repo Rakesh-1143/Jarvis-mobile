@@ -139,6 +139,16 @@ public final class WhatsAppSender extends AccessibilityService {
         return title.length() > 80 ? title.substring(0, 80) : title;
     }
 
+    /** Number of YouTube videos visible now (for the self-test). -1 if YouTube is not on screen. */
+    static int countVideos() {
+        WhatsAppSender s = instance;
+        AccessibilityNodeInfo root = s == null ? null : s.appRoot();
+        if (root == null || !YOUTUBE.contentEquals(root.getPackageName())) return -1;
+        List<AccessibilityNodeInfo> found = new ArrayList<>();
+        collectVideos(root, found, 0);
+        return found.size();
+    }
+
     private static void collectVideos(AccessibilityNodeInfo n, List<AccessibilityNodeInfo> out, int depth) {
         if (n == null || depth > 40) return;
         CharSequence d = n.getContentDescription();

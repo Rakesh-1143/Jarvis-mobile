@@ -674,8 +674,10 @@ public final class WakeWordService extends Service {
     }
 
     /** Apps with an icon in the app drawer. */
-    private List<AppMatcher.App> launcherApps() {
-        PackageManager pm = getPackageManager();
+    private List<AppMatcher.App> launcherApps() { return launcherApps(this); }
+
+    static List<AppMatcher.App> launcherApps(Context c) {
+        PackageManager pm = c.getPackageManager();
         Intent i = new Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER);
         List<AppMatcher.App> apps = new ArrayList<>();
         for (ResolveInfo r : pm.queryIntentActivities(i, 0)) {
