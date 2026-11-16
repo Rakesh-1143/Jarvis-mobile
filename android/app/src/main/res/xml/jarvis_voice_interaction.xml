@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Lets the user pick KALKI as "Digital assistant app" in Android settings. -->
+<voice-interaction-service xmlns:android="http://schemas.android.com/apk/res/android"
+    android:sessionService="com.growthos.jarvis.JarvisSessionService"
+    android:recognitionService="com.growthos.jarvis.JarvisRecognitionService"
+    android:settingsActivity="com.growthos.jarvis.AssistantSetupActivity"
+    android:supportsAssist="true"
+    android:supportsLaunchVoiceAssistFromKeyguard="false"
+    android:supportsLocalInteraction="false" />

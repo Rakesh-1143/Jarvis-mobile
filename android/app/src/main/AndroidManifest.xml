@@ -1,16 +1,63 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
     <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
     <uses-permission android:name="android.permission.CAMERA" />
+    <uses-permission android:name="android.permission.READ_CONTACTS" />
+    <uses-permission android:name="android.permission.CALL_PHONE" />
+    <uses-permission android:name="android.permission.READ_CALENDAR" />
+    <uses-permission android:name="android.permission.READ_CALL_LOG" />
+    <uses-permission android:name="android.permission.ANSWER_PHONE_CALLS" />
+    <uses-permission android:name="com.android.alarm.permission.SET_ALARM" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MICROPHONE" />
-    <queries><intent><action android:name="android.speech.RecognitionService" /></intent></queries>
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+    <queries>
+        <intent><action android:name="android.speech.RecognitionService" /></intent>
+        <!-- Lets Jarvis see apps that have an app-drawer icon, so "open WhatsApp" can find them. -->
+        <intent><action android:name="android.intent.action.MAIN" /><category android:name="android.intent.category.LAUNCHER" /></intent>
+        <intent><action android:name="android.intent.action.WEB_SEARCH" /></intent>
+        <intent><action android:name="android.intent.action.SEARCH" /></intent>
+        <intent><action android:name="android.intent.action.SEND" /><data android:mimeType="text/plain" /></intent>
+        <intent><action android:name="android.intent.action.SET_ALARM" /></intent>
+        <package android:name="com.whatsapp" />
+        <package android:name="com.whatsapp.w4b" />
+    </queries>
     <application android:allowBackup="false" android:icon="@drawable/kalki_logo" android:roundIcon="@drawable/kalki_logo" android:label="KALKI" android:usesCleartextTraffic="false" android:theme="@style/Theme.Jarvis">
+        <!-- Optional, user-enabled: taps Send in WhatsApp after a spoken "yes". Limited to WhatsApp in its XML. -->
+        <service android:name=".WhatsAppSender" android:exported="true" android:label="@string/whatsapp_sender_label" android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE">
+            <intent-filter><action android:name="android.accessibilityservice.AccessibilityService" /></intent-filter>
+            <meta-data android:name="android.accessibilityservice" android:resource="@xml/whatsapp_sender" />
+        </service>
+        <!-- Optional, user-enabled: reads recent notifications aloud on request; skips OTPs and bank messages. -->
+        <service android:name=".JarvisNotifications" android:exported="true" android:label="KALKI" android:permission="android.permission.BIND_NOTIFICATION_LISTENER_SERVICE">
+            <intent-filter><action android:name="android.service.notification.NotificationListenerService" /></intent-filter>
+        </service>
         <service android:name=".WakeWordService" android:exported="false" android:foregroundServiceType="microphone" />
+        <!-- Default digital assistant (user picks it in Android settings). -->
+        <service android:name=".JarvisVoiceInteractionService" android:exported="true" android:label="KALKI" android:permission="android.permission.BIND_VOICE_INTERACTION">
+            <meta-data android:name="android.voice_interaction" android:resource="@xml/jarvis_voice_interaction" />
+            <intent-filter><action android:name="android.service.voice.VoiceInteractionService" /></intent-filter>
+        </service>
+        <service android:name=".JarvisSessionService" android:exported="true" android:permission="android.permission.BIND_VOICE_INTERACTION" />
+        <!-- Required by Android for assistants; passes speech requests to the phone's real recognizer. -->
+        <service android:name=".JarvisRecognitionService" android:exported="true" android:label="KALKI">
+            <intent-filter><action android:name="android.speech.RecognitionService" /><category android:name="android.intent.category.DEFAULT" /></intent-filter>
+        </service>
+        <activity android:name=".VoiceRecordActivity" android:exported="false" android:label="Record my voice" android:screenOrientation="portrait" />
+        <activity android:name=".VoiceTrainingActivity" android:exported="false" android:label="Train my voice" android:screenOrientation="portrait" />
+        <activity android:name=".LaunchActivity" android:exported="false" android:excludeFromRecents="true" android:noHistory="true" android:theme="@android:style/Theme.Translucent.NoTitleBar" />
+        <receiver android:name=".BootReceiver" android:exported="true">
+            <intent-filter><action android:name="android.intent.action.BOOT_COMPLETED" /></intent-filter>
+            <intent-filter><action android:name="android.intent.action.MY_PACKAGE_REPLACED" /></intent-filter>
+        </receiver>
+        <!-- Exported so Android's assistant settings gear can open it. Read-only status screen. -->
+        <activity android:name=".AssistantSetupActivity" android:exported="true" android:label="Jarvis setup" android:screenOrientation="portrait" />
         <activity android:name=".MainActivity" android:exported="true" android:launchMode="singleTop" android:screenOrientation="portrait">
             <intent-filter><action android:name="android.intent.action.MAIN" /><category android:name="android.intent.category.LAUNCHER" /></intent-filter>
+            <meta-data android:name="android.app.shortcuts" android:resource="@xml/shortcuts" />
             <intent-filter><action android:name="android.intent.action.VIEW" /><category android:name="android.intent.category.DEFAULT" /><category android:name="android.intent.category.BROWSABLE" /><data android:scheme="https" android:host="rakesh-1143.github.io" android:pathPrefix="/Jarvis-mobile/" /></intent-filter>
             <intent-filter><action android:name="android.intent.action.SEND" /><category android:name="android.intent.category.DEFAULT" /><data android:mimeType="*/*" /></intent-filter>
             <intent-filter><action android:name="android.intent.action.SEND_MULTIPLE" /><category android:name="android.intent.category.DEFAULT" /><data android:mimeType="*/*" /></intent-filter>

@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="setup_short">Jarvis setup</string>
+    <string name="setup_long">Jarvis setup and diagnostics</string>
+    <string name="whatsapp_sender_label">Jarvis control</string>
+    <string name="whatsapp_sender_description">Lets Jarvis act on your voice commands: tap, type, scroll, go back or home, read the screen, play YouTube videos, and tap Send in WhatsApp only after you say "yes" to "Send it, Boss?". It acts only when you give a command. It never touches banking, UPI, wallet or password apps, and never types into or reads password boxes. Turn it off here any time.</string>
+</resources>
