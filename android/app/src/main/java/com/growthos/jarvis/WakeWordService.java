@@ -166,13 +166,16 @@ public final class WakeWordService extends Service {
             AudioManager am = (AudioManager) getSystemService(AUDIO_SERVICE);
             if (am == null || am.getMode() != AudioManager.MODE_NORMAL || am.getRingerMode() != AudioManager.RINGER_MODE_NORMAL || am.isMusicActive()) return;
             lastGreetAt = now;
-            tts.speak("Hello Boss!", TextToSpeech.QUEUE_ADD, new Bundle(), "jarvis-greet");
+            String hello = "Hello " + prefs(c).getString(KEY_NAME, "Boss") + "!";
+            if (MyVoice.on(c)) MyVoice.speak(c, hello, prefs(c).getFloat(KEY_RATE, 1.0f), ok -> { if (!ok && tts != null) tts.speak(hello, TextToSpeech.QUEUE_ADD, new Bundle(), "jarvis-greet"); });
+            else tts.speak(hello, TextToSpeech.QUEUE_ADD, new Bundle(), "jarvis-greet");
         }
     };
 
     @Override public void onCreate() {
         super.onCreate();
         instance = this;
+        MyVoice.warmUp(this);
         try { registerReceiver(unlockReceiver, new android.content.IntentFilter(Intent.ACTION_USER_PRESENT)); } catch (Exception ignored) { }
         try {
             android.content.IntentFilter f = new android.content.IntentFilter();
@@ -1177,9 +1180,24 @@ public final class WakeWordService extends Service {
         afterSpeech = then;
         if (text != null && !text.isEmpty() && !text.equals(lastSpoken) && !text.startsWith("Boss, I haven't said")) lastSpoken = text;
         GeminiClient.noteSpoken(text);
-        if (!ttsReady || tts == null) { main.post(this::speechFinished); return; }
         String name = prefs(this).getString(KEY_NAME, "Boss");
-        if (!"Boss".equals(name)) text = text.replace("Boss", name);
+        if (text != null && !"Boss".equals(name)) text = text.replace("Boss", name);
+        if (text != null && MyVoice.on(this)) {
+            // The user's own voice (offline). If it fails, fall back to the phone voice.
+            if (tts != null) try { tts.stop(); } catch (Exception ignored) { }
+            final String said = text;
+            final Runnable then2 = then;
+            MyVoice.speak(this, said, prefs(this).getFloat(KEY_RATE, 1.0f), ok -> {
+                if (afterSpeech != then2) return; // something newer is being said
+                if (ok) speechFinished(); else phoneVoice(said);
+            });
+            return;
+        }
+        phoneVoice(text);
+    }
+
+    private void phoneVoice(String text) {
+        if (!ttsReady || tts == null || text == null) { main.post(this::speechFinished); return; }
         try { tts.setSpeechRate(prefs(this).getFloat(KEY_RATE, 1.0f)); } catch (Exception ignored) { }
         Bundle p = new Bundle();
         tts.speak(text, TextToSpeech.QUEUE_FLUSH, p, "jarvis-" + SystemClock.elapsedRealtime());
@@ -1232,6 +1250,7 @@ public final class WakeWordService extends Service {
 
     @Override public void onDestroy() {
         if (instance == this) instance = null;
+        MyVoice.release();
         try { unregisterReceiver(unlockReceiver); } catch (Exception ignored) { }
         try { unregisterReceiver(powerReceiver); } catch (Exception ignored) { }
         stopping = true;

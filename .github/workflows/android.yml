@@ -64,6 +64,20 @@ jobs:
           echo "$KEYSTORE_B64" | base64 -d > "$RUNNER_TEMP/jarvis.keystore"
           echo "JARVIS_KEYSTORE_FILE=$RUNNER_TEMP/jarvis.keystore" >> "$GITHUB_ENV"
 
+      - name: Get sherpa-onnx (offline "my voice" engine)
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl -fsSL --retry 4 --retry-delay 5 -o "$RUNNER_TEMP/sherpa.aar" https://github.com/k2-fsa/sherpa-onnx/releases/download/v1.12.33/sherpa-onnx-1.12.33.aar
+          echo "9b07a0a2faec52cd6e5ee2cf4759d4ad49f5a7d1e750f24e26e9e8074c5ae2c6  $RUNNER_TEMP/sherpa.aar" | sha256sum -c -
+          rm -rf "$RUNNER_TEMP/sherpa" && mkdir "$RUNNER_TEMP/sherpa" && cd "$RUNNER_TEMP/sherpa" && unzip -q "$RUNNER_TEMP/sherpa.aar"
+          # Keep only the JNI library for our two ABIs; it uses the app's own libonnxruntime.so.
+          rm -rf jni/x86 jni/x86_64 jni/*/libonnxruntime.so jni/*/libsherpa-onnx-c-api.so jni/*/libsherpa-onnx-cxx-api.so
+          mkdir -p "$GITHUB_WORKSPACE/android/app/libs"
+          rm -f "$GITHUB_WORKSPACE/android/app/libs/sherpa-onnx.aar"
+          zip -qr "$GITHUB_WORKSPACE/android/app/libs/sherpa-onnx.aar" .
+          unzip -l "$GITHUB_WORKSPACE/android/app/libs/sherpa-onnx.aar" | grep jni/
+
       - name: Run unit tests
         run: gradle --no-daemon testDebugUnitTest
 

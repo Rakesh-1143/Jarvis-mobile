@@ -52,6 +52,10 @@ android {
     }
 
     buildFeatures { buildConfig = true }
+    packaging {
+        // sherpa-onnx uses the onnxruntime from onnxruntime-android (CI removes its own copy).
+        jniLibs { pickFirsts += listOf("**/libonnxruntime.so") }
+    }
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
@@ -61,5 +65,9 @@ android {
 dependencies {
     // Offline wake word engine runtime (MIT licence, free, no key). Models are in assets/wakeword.
     implementation("com.microsoft.onnxruntime:onnxruntime-android:1.29.0")
+    // "Use my voice": offline speech with the user's own Piper voice. sherpa-onnx (Apache-2.0) 1.12.33;
+    // CI downloads the AAR, checks its SHA-256 and drops parts we don't use (see .github/workflows/android.yml).
+    implementation(files("libs/sherpa-onnx.aar"))
+    implementation("org.jetbrains.kotlin:kotlin-stdlib:1.9.24")
     testImplementation("junit:junit:4.13.2")
 }

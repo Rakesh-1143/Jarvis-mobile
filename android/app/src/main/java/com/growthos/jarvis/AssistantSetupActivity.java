@@ -119,6 +119,20 @@ public final class AssistantSetupActivity extends Activity {
         int recCount = recs == null ? 0 : recs.length;
         row("Jarvis speaking in your voice (step 1: record)", recCount == 0 ? "Not started · read about 140 sentences (30 min); recorded only on that screen" : recCount + " sentences recorded · stored on this phone until you export", recCount >= 100 ? Boolean.TRUE : null);
         button(recCount == 0 ? "Record my voice for Jarvis" : "Continue recording my voice", v -> startActivity(new Intent(this, VoiceRecordActivity.class)));
+        boolean mine = MyVoice.installed(this);
+        row("Jarvis speaking in your voice (step 3: use it)", !mine ? "No voice file yet · after the Colab training, tap Use my voice and pick jarvis-my-voice.zip"
+                : (MyVoice.on(this) ? "On · " : "Off · ") + MyVoice.label(this) + " · runs offline on this phone", mine ? (Boolean) MyVoice.on(this) : null);
+        button(mine ? "Load a different voice file" : "Use my voice (pick the voice zip)", v -> {
+            Intent pick = new Intent(Intent.ACTION_OPEN_DOCUMENT).addCategory(Intent.CATEGORY_OPENABLE).setType("*/*")
+                    .putExtra(Intent.EXTRA_MIME_TYPES, new String[]{"application/zip", "application/x-zip-compressed", "application/octet-stream"});
+            startActivityForResult(pick, VOICE_PICK);
+        });
+        if (mine) {
+            button("Say hello in my voice", v -> MyVoice.speak(this, "Hello " + WakeWordService.prefs(this).getString(WakeWordService.KEY_NAME, "Boss") + ", this is your voice. How do I sound?", 1.0f,
+                    ok -> { if (!ok) Toast.makeText(this, "Your voice file couldn't be loaded. Please load it again.", Toast.LENGTH_LONG).show(); }));
+            button(MyVoice.on(this) ? "Use the phone voice instead" : "Turn my voice back on", v -> { MyVoice.setOn(this, !MyVoice.on(this)); render(); });
+            button("Remove my voice file", v -> { MyVoice.remove(this); render(); });
+        }
         if (trained) button("Delete my voice training", v -> {
             TemplateMatcher.file(this).delete();
             sp.edit().remove(WakeWordService.KEY_TRAINED_AT).remove(WakeWordService.KEY_PHRASE).apply();
@@ -329,6 +343,28 @@ public final class AssistantSetupActivity extends Activity {
     }
 
     /** Applies a listening setting change at once. */
+    private static final int VOICE_PICK = 91;
+
+    @Override protected void onActivityResult(int req, int res, Intent data) {
+        super.onActivityResult(req, res, data);
+        if (req != VOICE_PICK || res != RESULT_OK || data == null || data.getData() == null) return;
+        final android.net.Uri uri = data.getData();
+        String name = "your voice";
+        try (android.database.Cursor cur = getContentResolver().query(uri, new String[]{android.provider.OpenableColumns.DISPLAY_NAME}, null, null, null)) {
+            if (cur != null && cur.moveToFirst()) name = cur.getString(0);
+        } catch (Exception ignored) { }
+        final String label = name;
+        Toast.makeText(this, "Loading your voice… this can take a minute", Toast.LENGTH_LONG).show();
+        new Thread(() -> {
+            String err = MyVoice.importZip(this, uri, label);
+            runOnUiThread(() -> {
+                Toast.makeText(this, err == null ? "Your voice is ready. Tap \"Say hello in my voice\" to try it." : "Couldn't use it: " + err, Toast.LENGTH_LONG).show();
+                render();
+                restartWake();
+            });
+        }, "jarvis-voice-import").start();
+    }
+
     private void restartWake() { if (WakeWordService.isEnabled(this)) WakeWordService.start(this, null); }
 
     private static String time(long ms) { return DateFormat.getDateTimeInstance(DateFormat.SHORT, DateFormat.SHORT).format(new Date(ms)); }
