@@ -9,11 +9,13 @@ import android.net.Uri;
 final class Searches {
     static final String YOUTUBE = "com.google.android.youtube", PLAY = "com.android.vending",
             MAPS = "com.google.android.apps.maps", SPOTIFY = "com.spotify.music", CHROME = "com.android.chrome",
-            GOOGLE = "com.google.android.googlequicksearchbox";
+            GOOGLE = "com.google.android.googlequicksearchbox", INSTAGRAM = "com.instagram.android", INSTAGRAM_LITE = "com.instagram.lite";
 
     /** Apps whose search Jarvis opens with a link or intent (no screen tapping needed). */
     static boolean knownApp(String pkg) {
-        return pkg != null && (pkg.equals(YOUTUBE) || pkg.equals(PLAY) || pkg.equals(MAPS) || pkg.equals(SPOTIFY) || pkg.equals(CHROME) || pkg.equals(GOOGLE));
+        return pkg != null && (pkg.equals(YOUTUBE) || pkg.equals(PLAY) || pkg.equals(MAPS) || pkg.equals(SPOTIFY) || pkg.equals(CHROME) || pkg.equals(GOOGLE)
+                // Instagram Lite has no labels on screen, so Jarvis can't find its search button: use the link.
+                || pkg.equals(INSTAGRAM_LITE));
     }
 
     /** pkg null = search the web. Returns null when the app has no search Jarvis can open. */
@@ -34,6 +36,11 @@ final class Searches {
             case MAPS: return view("geo:0,0?q=" + e, MAPS);
             case SPOTIFY: return view("spotify:search:" + e, SPOTIFY);
             case CHROME: return view("https://www.google.com/search?q=" + e, CHROME);
+            case INSTAGRAM: case INSTAGRAM_LITE: {
+                // Instagram's keyword search page; opens in the app when it takes the link, else in the browser.
+                Intent i = view("https://www.instagram.com/explore/search/keyword/?q=" + e, pkg);
+                return resolves(c, i) ? i : view("https://www.instagram.com/explore/search/keyword/?q=" + e, null);
+            }
             default: {
                 // Many apps accept the standard Android search request.
                 Intent i = new Intent(Intent.ACTION_SEARCH).setPackage(pkg).putExtra(SearchManager.QUERY, q);

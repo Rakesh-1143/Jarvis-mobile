@@ -349,7 +349,7 @@ public final class WhatsAppSender extends AccessibilityService {
         CharSequence hint = android.os.Build.VERSION.SDK_INT >= 26 ? n.getHintText() : null;
         String l = label(n);
         return SEARCH_WORD.matcher(l).matches() || (hint != null && SEARCH_WORD.matcher(hint).matches())
-                || (id != null && id.toString().toLowerCase(java.util.Locale.ROOT).contains("search"));
+                || (id != null && id.toString().replaceFirst("^.*:id/", "").toLowerCase(java.util.Locale.ROOT).contains("search"));
     }
 
     /** Claude, ChatGPT, Gemini...: type the question into the chat box and press send. */
