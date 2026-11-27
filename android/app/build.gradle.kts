@@ -18,8 +18,11 @@ android {
         targetSdk = 35
         versionCode = appVersionCode
         versionName = "0.7.$appVersionCode"
-        // Moto G31 and most phones are arm64; armeabi-v7a keeps older 32-bit phones working.
-        ndk { abiFilters += listOf("arm64-v8a", "armeabi-v7a") }
+        // Moto G31 and almost every phone since 2017 is 64-bit (arm64). Shipping only that halves the
+        // APK (the 32-bit copy of the speech engines alone was ~26 MB). For an old 32-bit phone, build
+        // with -PJARVIS_ABIS=arm64-v8a,armeabi-v7a.
+        val abis = providers.gradleProperty("JARVIS_ABIS").orElse("arm64-v8a").get().split(",").map { it.trim() }
+        ndk { abiFilters += abis }
         buildConfigField("String", "JARVIS_START_URL", "\"${startUrl.get().replace("\\", "\\\\").replace("\"", "\\\"")}\"")
     }
 
@@ -42,8 +45,14 @@ android {
         debug {
             signingConfig = signingConfigs.getByName("debug")
         }
+        // The app installed on the phone. Unlike debug it is not "debuggable" (other tools on a
+        // USB-connected computer cannot read its private files) and Android fully compiles it, so
+        // it runs faster and uses less battery. Signed with the same fixed key as before, so the
+        // phone still shows "Update" over the old debug app.
         release {
-            isMinifyEnabled = false
+            signingConfig = signingConfigs.getByName("debug")
+            // Removes unused library code (mostly Kotlin) from the APK. Our own code is kept whole.
+            isMinifyEnabled = true
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
@@ -52,6 +61,8 @@ android {
     }
 
     buildFeatures { buildConfig = true }
+    // Debug builds never ran lint either; keep CI builds as they were.
+    lint { checkReleaseBuilds = false }
     packaging {
         // sherpa-onnx uses the onnxruntime from onnxruntime-android (CI removes its own copy).
         jniLibs { pickFirsts += listOf("**/libonnxruntime.so") }
