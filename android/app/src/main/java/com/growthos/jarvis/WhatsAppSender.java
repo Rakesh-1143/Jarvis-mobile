@@ -265,6 +265,13 @@ public final class WhatsAppSender extends AccessibilityService {
         return s != null && s.performGlobalAction(action);
     }
 
+    /** Voice unlock: types the PIN on the lock screen's PIN pad. See PinTyper. */
+    static void typeLockScreenPin(String pin, PinTyper.Done done) {
+        WhatsAppSender s = instance;
+        if (s == null) { done.result(PinTyper.ERROR); return; }
+        PinTyper.type(s, pin, done);
+    }
+
     static boolean back() {
         WhatsAppSender s = instance;
         return s != null && s.performGlobalAction(GLOBAL_ACTION_BACK);

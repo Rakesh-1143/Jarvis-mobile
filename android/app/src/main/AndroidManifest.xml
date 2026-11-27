@@ -14,6 +14,8 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MICROPHONE" />
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+    <!-- Voice unlock: turns the screen on so the lock screen PIN pad can show. -->
+    <uses-permission android:name="android.permission.WAKE_LOCK" />
     <queries>
         <intent><action android:name="android.speech.RecognitionService" /></intent>
         <!-- Lets Jarvis see apps that have an app-drawer icon, so "open WhatsApp" can find them. -->
@@ -48,6 +50,8 @@
         </service>
         <activity android:name=".VoiceRecordActivity" android:exported="false" android:label="Record my voice" android:screenOrientation="portrait" />
         <activity android:name=".VoiceTrainingActivity" android:exported="false" android:label="Train my voice" android:screenOrientation="portrait" />
+        <!-- Voice unlock: invisible; asks Android to show its own PIN pad. -->
+        <activity android:name=".UnlockActivity" android:exported="false" android:excludeFromRecents="true" android:showWhenLocked="true" android:turnScreenOn="true" android:theme="@android:style/Theme.Translucent.NoTitleBar" />
         <activity android:name=".LaunchActivity" android:exported="false" android:excludeFromRecents="true" android:noHistory="true" android:theme="@android:style/Theme.Translucent.NoTitleBar" />
         <receiver android:name=".BootReceiver" android:exported="true">
             <intent-filter><action android:name="android.intent.action.BOOT_COMPLETED" /></intent-filter>
