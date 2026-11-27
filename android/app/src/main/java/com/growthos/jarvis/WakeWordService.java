@@ -275,7 +275,7 @@ public final class WakeWordService extends Service {
         boolean useBase = AppMatcher.norm(prefs(this).getString(KEY_PHRASE, "Hey Jarvis")).replace(" ", "").equals("heyjarvis");
         short[] chunk = new short[WakeWordEngine.CHUNK];
         long cpuNanos = 0, chunks = 0;
-        minuteModelNanos = minuteMatchNanos = 0; minuteSkipped = 0; java.util.Arrays.fill(minuteDb, 0);
+        minuteModelNanos = minuteMatchNanos = 0; minuteSkipped = 0; java.util.Arrays.fill(minuteDb, 0); engine.takeTimes();
         AudioManager am = (AudioManager) getSystemService(AUDIO_SERVICE);
         try {
             rec.startRecording();
@@ -304,8 +304,10 @@ public final class WakeWordService extends Service {
                     prefs(this).edit().putFloat(KEY_CPU, cpuNanos / 1e6f / chunks).apply();
                     engineInfo = engine.backend + String.format(Locale.US, " · %.0f%% silence skipped", engine.skippedShare() * 100);
                     // One line a minute so battery use can be checked with "adb logcat -s JarvisWake" (no audio, just numbers).
-                    Log.i(TAG, String.format(Locale.US, "last minute: models %.1f ms + voice check %.1f ms per 80 ms chunk, %d%% silence skipped, loudness p20 %d / p50 %d / p90 %d dBFS",
-                            minuteModelNanos / 1e6 / 750, minuteMatchNanos / 1e6 / 750, minuteSkipped * 100 / 750, dbPercentile(20), dbPercentile(50), dbPercentile(90)));
+                    long[] mt = engine.takeTimes();
+                    Log.i(TAG, String.format(Locale.US, "last minute: models %.1f ms (mel %.1f, embedding %.1f, wake %.1f) + voice check %.1f ms per 80 ms chunk, %d%% silence skipped, loudness p20 %d / p50 %d / p90 %d dBFS, background %.0f dBFS",
+                            minuteModelNanos / 1e6 / 750, mt[0] / 1e6 / 750, mt[1] / 1e6 / 750, mt[2] / 1e6 / 750, minuteMatchNanos / 1e6 / 750, minuteSkipped * 100 / 750,
+                            dbPercentile(20), dbPercentile(50), dbPercentile(90), engine.backgroundDb()));
                     minuteModelNanos = minuteMatchNanos = 0; minuteSkipped = 0; java.util.Arrays.fill(minuteDb, 0);
                 }
                 long now = SystemClock.elapsedRealtime();
