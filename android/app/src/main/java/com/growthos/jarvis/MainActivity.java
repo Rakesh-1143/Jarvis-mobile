@@ -32,7 +32,7 @@ public final class MainActivity extends Activity {
         webView.addJavascriptInterface(advancedBridge,"JarvisAdvanced"); webView.setWebViewClient(new WebViewClient(){
             @Override public boolean shouldOverrideUrlLoading(WebView v,WebResourceRequest r){return r.isForMainFrame()&&openExternalIfNeeded(r.getUrl());}
             @Override public boolean shouldOverrideUrlLoading(WebView v,String u){return openExternalIfNeeded(Uri.parse(u));}
-            @Override public void onPageFinished(WebView v,String u){super.onPageFinished(v,u);dispatchPendingShare();}
+            @Override public void onPageFinished(WebView v,String u){super.onPageFinished(v,u);dispatchPendingShare();copyAiKey();}
         });
         webView.setWebChromeClient(new WebChromeClient(){
             @Override public void onPermissionRequest(final PermissionRequest r){runOnUiThread(()->{if(hasRecordAudioPermission()&&isTrustedOrigin(r.getOrigin()))r.grant(new String[]{PermissionRequest.RESOURCE_AUDIO_CAPTURE});else if(!hasRecordAudioPermission()){pendingPermissionRequest=r;requestPermissions(new String[]{Manifest.permission.RECORD_AUDIO},AUDIO_REQUEST);}else r.deny();});}
@@ -52,10 +52,18 @@ public final class MainActivity extends Activity {
         } catch(Exception ignored){Toast.makeText(this,"Unable to preview shared content",Toast.LENGTH_SHORT).show();}
     }
     private void addShareUri(JSONArray fs,Uri u,String type)throws Exception{if(u==null)return;JSONObject f=new JSONObject();f.put("uri",u.toString());f.put("name",u.getLastPathSegment()==null?"Shared item":u.getLastPathSegment());f.put("mimeType",type==null?"application/octet-stream":type);fs.put(f);}
+    /** Lets voice commands answer questions with the Gemini key the user saved in KALKI settings. Only from KALKI's own page; stays on this phone. */
+    private void copyAiKey(){if(webView==null)return;String u=webView.getUrl();if(u==null||!"rakesh-1143.github.io".equalsIgnoreCase(Uri.parse(u).getHost()))return;
+        webView.evaluateJavascript("(function(){try{return localStorage.getItem('jarvis_api_key')||''}catch(e){return ''}})()",v->{try{if(v!=null&&v.length()>2)GeminiClient.saveKey(this,new org.json.JSONArray("["+v+"]").getString(0));}catch(Exception ignored){}});}
+    @Override protected void onPause(){copyAiKey();super.onPause();}
     private void dispatchPendingShare(){if(webView==null||pendingShareJson==null)return;String q=JSONObject.quote(pendingShareJson);webView.post(()->webView.evaluateJavascript("window.dispatchEvent(new CustomEvent('kalki-share',{detail:JSON.parse("+q+")}));",null));}
     private void dispatch(String event,String value){if(webView==null)return;webView.post(()->webView.evaluateJavascript("window.dispatchEvent(new CustomEvent("+JSONObject.quote(event)+",{detail:"+JSONObject.quote(value)+"}));",null));}
     private String JSONObjectQuote(String s){return org.json.JSONObject.quote(s);}
-    @Override protected void onStart(){super.onStart();IntentFilter f=new IntentFilter(WakeWordService.ACTION_COMMAND);if(Build.VERSION.SDK_INT>=33)registerReceiver(wakeReceiver,f,RECEIVER_NOT_EXPORTED);else registerReceiver(wakeReceiver,f);}
+    @Override protected void onStart(){super.onStart();IntentFilter f=new IntentFilter(WakeWordService.ACTION_COMMAND);if(Build.VERSION.SDK_INT>=33)registerReceiver(wakeReceiver,f,RECEIVER_NOT_EXPORTED);else registerReceiver(wakeReceiver,f);
+        // If "Hey Jarvis" was switched on but the listener died (app update, app disabled/re-enabled,
+        // KALKI no longer the default assistant), opening the app brings it back. The app is in the
+        // foreground here, so Android allows starting the microphone service.
+        if(WakeWordService.isEnabled(this)&&!WakeWordService.running)WakeWordService.start(this,null);}
     @Override protected void onStop(){try{unregisterReceiver(wakeReceiver);}catch(Exception ignored){}super.onStop();}
     private boolean openExternalIfNeeded(Uri u){String scheme=u.getScheme();if(("http".equalsIgnoreCase(scheme)||"https".equalsIgnoreCase(scheme))&&isAppHost(u))return false;try{startActivity(new Intent(Intent.ACTION_VIEW,u));}catch(Exception e){Toast.makeText(this,"No app can open this link",Toast.LENGTH_SHORT).show();}return true;}
     /** KALKI's own pages stay in the app; other sites (YouTube, Google sign-in, ...) open in their app or the browser. */
@@ -66,8 +74,8 @@ public final class MainActivity extends Activity {
     private boolean hasNotificationPermission(){return Build.VERSION.SDK_INT<33||checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS)==PackageManager.PERMISSION_GRANTED;}
     private void requestWakePermissions(){ArrayList<String> p=new ArrayList<>();if(!hasRecordAudioPermission())p.add(Manifest.permission.RECORD_AUDIO);if(Build.VERSION.SDK_INT>=33&&!hasNotificationPermission())p.add(Manifest.permission.POST_NOTIFICATIONS);if(p.isEmpty())startWakeService();else requestPermissions(p.toArray(new String[0]),WAKE_REQUEST);}
     private void startNativeSpeech(String lang){if(speech==null)return;if(hasRecordAudioPermission()){speech.start(lang);return;}pendingSpeechLang=lang==null?"":lang;requestPermissions(new String[]{Manifest.permission.RECORD_AUDIO},SPEECH_REQUEST);}
-    private void startWakeService(){if(!hasRecordAudioPermission())return;Intent i=new Intent(this,WakeWordService.class);if(Build.VERSION.SDK_INT>=26)startForegroundService(i);else startService(i);}
-    private void stopWakeService(){stopService(new Intent(this,WakeWordService.class));}
+    private void startWakeService(){if(!hasRecordAudioPermission())return;WakeWordService.setEnabled(this,true);}
+    private void stopWakeService(){WakeWordService.setEnabled(this,false);}
     private final class NativeBridge{
         @JavascriptInterface public void enableWakeWord(){runOnUiThread(MainActivity.this::requestWakePermissions);}
         @JavascriptInterface public void requestScreenCapture(){advancedBridge.requestScreenCapture();}
@@ -85,12 +93,13 @@ public final class MainActivity extends Activity {
         @JavascriptInterface public void openCamera(){runOnUiThread(()->{try{startActivity(new Intent(android.provider.MediaStore.ACTION_IMAGE_CAPTURE));}catch(Exception e){Toast.makeText(MainActivity.this,"No camera app is available",Toast.LENGTH_SHORT).show();}});}
         @JavascriptInterface public void openNotificationSettings(){runOnUiThread(()->startActivity(new Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS).putExtra(Settings.EXTRA_APP_PACKAGE,getPackageName())));}
         @JavascriptInterface public void openBatterySettings(){runOnUiThread(()->{try{startActivity(new Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS));}catch(Exception e){startActivity(new Intent(Settings.ACTION_SETTINGS));}});}
+        @JavascriptInterface public void openAssistantSetup(){runOnUiThread(()->startActivity(new Intent(MainActivity.this,AssistantSetupActivity.class)));}
         @JavascriptInterface public void openAppSettings(){runOnUiThread(()->startActivity(new Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS,Uri.parse("package:"+getPackageName()))));}
         @JavascriptInterface public String nativeVersion(){return "kalki-android-0.8.0-voice";}
     }
     @Override protected void onActivityResult(int req,int result,Intent data){super.onActivityResult(req,result,data);if(req==AdvancedIntelligenceBridge.SCREEN_CAPTURE_REQUEST&&advancedBridge!=null){advancedBridge.screenResult(result==RESULT_OK);return;}if(req==1203&&advancedBridge!=null){advancedBridge.fileResult(result==RESULT_OK);return;}if(req==FILE_REQUEST&&fileCallback!=null){Uri[] r=WebChromeClient.FileChooserParams.parseResult(result,data);fileCallback.onReceiveValue(r);fileCallback=null;}}
     @Override public void onRequestPermissionsResult(int c,String[] p,int[] r){super.onRequestPermissionsResult(c,p,r);if(c==SPEECH_REQUEST){String l=pendingSpeechLang;pendingSpeechLang=null;if(hasRecordAudioPermission())speech.start(l);else dispatch("jarvis-native-speech","{\"type\":\"error\",\"error\":\"not-allowed\"}");return;}if(c==AUDIO_REQUEST&&pendingPermissionRequest!=null){if(hasRecordAudioPermission()&&isTrustedOrigin(pendingPermissionRequest.getOrigin()))pendingPermissionRequest.grant(new String[]{PermissionRequest.RESOURCE_AUDIO_CAPTURE});else pendingPermissionRequest.deny();pendingPermissionRequest=null;}else if(c==WAKE_REQUEST&&hasRecordAudioPermission()&&hasNotificationPermission())startWakeService();else if(c==WAKE_REQUEST&&webView!=null)webView.evaluateJavascript("document.getElementById('wake-word-toggle')?.click();document.getElementById('wake-word-toggle')&&(document.getElementById('wake-word-toggle').checked=false);",null);}
     @Override public void onBackPressed(){if(webView!=null&&webView.canGoBack())webView.goBack();else super.onBackPressed();}
-    @Override protected void onDestroy(){stopWakeService();if(speech!=null)speech.destroy();if(fileCallback!=null)fileCallback.onReceiveValue(null);if(webView!=null){webView.removeJavascriptInterface("JarvisNative");webView.removeJavascriptInterface("JarvisAdvanced");webView.destroy();}super.onDestroy();}
+    @Override protected void onDestroy(){/* Jarvis keeps listening after the app closes; turn it off in Jarvis setup or the notification. */if(speech!=null)speech.destroy();if(fileCallback!=null)fileCallback.onReceiveValue(null);if(webView!=null){webView.removeJavascriptInterface("JarvisNative");webView.removeJavascriptInterface("JarvisAdvanced");webView.destroy();}super.onDestroy();}
 }
 
