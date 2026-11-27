@@ -17,9 +17,11 @@ No bundled Porcupine/Vosk/wake-word model was added: shipping one would require 
 
 ## Build and test
 ```bash
-gradle --no-daemon assembleDebug
+gradle --no-daemon assembleRelease
 # optional URL override (must be HTTPS)
-gradle --no-daemon :app:assembleDebug -PJARVIS_START_URL=https://your-frontend.example/
+gradle --no-daemon :app:assembleRelease -PJARVIS_START_URL=https://your-frontend.example/
+# also include 32-bit phones (adds ~26 MB)
+gradle --no-daemon :app:assembleRelease -PJARVIS_ABIS=arm64-v8a,armeabi-v7a
 ```
 
-Install only after review with `adb install -r app/build/outputs/apk/debug/app-debug.apk`. On the OnePlus Nord CE3 5G, test cold start, explicit enable, denied mic/notification permission states, Telugu TTS voice data, “Hey KALKI” and “Hey Jarvis”, bare wake + command, inline command, Stop KALKI, notification Stop KALKI, background/home screen, locked screen, force-stop, battery optimization, reconnect after process pressure, and WebView command delivery. Physical device testing and release signing remain required before production claims.
+CI builds the release APK (not debuggable, unused library code removed, 64-bit only) and signs it with the same fixed key as the old debug builds, so it installs as an update. Install only after review with `adb install -r app/build/outputs/apk/release/app-release.apk`. Use `assembleDebug` only when you need `adb shell run-as` to inspect the app's files. On the OnePlus Nord CE3 5G, test cold start, explicit enable, denied mic/notification permission states, Telugu TTS voice data, “Hey KALKI” and “Hey Jarvis”, bare wake + command, inline command, Stop KALKI, notification Stop KALKI, background/home screen, locked screen, force-stop, battery optimization, reconnect after process pressure, and WebView command delivery. Physical device testing and release signing remain required before production claims.

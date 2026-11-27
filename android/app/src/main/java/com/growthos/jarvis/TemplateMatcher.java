@@ -7,6 +7,7 @@ import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.io.IOException;
 import java.util.ArrayList;
+import java.util.IdentityHashMap;
 import java.util.List;
 
 /**
@@ -36,11 +37,61 @@ public final class TemplateMatcher {
      * the newest frame (the start is free). Lower = more alike.
      */
     public float distance(float[][] frames) {
+        // While listening this runs every 80 ms on the newest frames, and all but one of them were
+        // already compared with every template row last time. Keep those distances (keyed by the
+        // frame object, which never changes once made) and only compute the new frame's.
+        // Same numbers as before, roughly span-times less work.
+        IdentityHashMap<float[], float[]> next = new IdentityHashMap<>(frames.length * 2);
+        float[][] cols = new float[frames.length][];
+        for (int j = 0; j < frames.length; j++) {
+            float[] col = next.get(frames[j]);
+            if (col == null) col = known.get(frames[j]);
+            if (col == null) col = column(frames[j]);
+            next.put(frames[j], col);
+            cols[j] = col;
+        }
+        known = next;
         float best = Float.MAX_VALUE;
-        for (float[][] t : templates) best = Math.min(best, dtwEndAligned(t, frames));
+        int offset = 0;
+        for (float[][] t : templates) { best = Math.min(best, dtwEndAligned(t.length, cols, offset)); offset += t.length; }
         return best;
     }
 
+    /** Distances from one frame to every row of every template, in template order. */
+    private float[] column(float[] frame) {
+        int rows = 0;
+        for (float[][] t : templates) rows += t.length;
+        float[] col = new float[rows];
+        int k = 0;
+        for (float[][] t : templates) for (float[] r : t) col[k++] = cosDist(r, frame);
+        return col;
+    }
+
+    private IdentityHashMap<float[], float[]> known = new IdentityHashMap<>();
+    private float[] costBuf = new float[0];
+    private int[] lenBuf = new int[0];
+
+    private float dtwEndAligned(int n, float[][] cols, int offset) {
+        int m = cols.length;
+        if (n == 0 || m == 0) return Float.MAX_VALUE;
+        if (costBuf.length < n * m) { costBuf = new float[n * m]; lenBuf = new int[n * m]; }
+        float[] cost = costBuf;
+        int[] len = lenBuf;
+        for (int i = 0; i < n; i++) for (int j = 0; j < m; j++) {
+            float c = cols[j][offset + i];
+            int at = i * m + j;
+            if (i == 0) { cost[at] = c; len[at] = 1; continue; } // template may start anywhere in x
+            float best = Float.MAX_VALUE; int bl = 1;
+            if (j > 0 && cost[at - m - 1] < best) { best = cost[at - m - 1]; bl = len[at - m - 1]; }
+            if (cost[at - m] < best) { best = cost[at - m]; bl = len[at - m]; }
+            if (j > 0 && cost[at - 1] < best && len[at - 1] < 2 * n) { best = cost[at - 1]; bl = len[at - 1]; }
+            cost[at] = best + c; len[at] = bl + 1;
+        }
+        int last = (n - 1) * m + m - 1;
+        return cost[last] / len[last];
+    }
+
+    /** The plain version of the comparison above, kept so tests can check both agree. */
     static float dtwEndAligned(float[][] t, float[][] x) {
         int n = t.length, m = x.length;
         if (n == 0 || m == 0) return Float.MAX_VALUE;
