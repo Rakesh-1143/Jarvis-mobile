@@ -75,11 +75,16 @@ public final class WakeWordEngine implements AutoCloseable {
 
     private float quietLimit() { return background < 0 ? QUIET_RMS : Math.max(QUIET_RMS, Math.min(background * ABOVE_BACKGROUND, MAX_QUIET_RMS)); }
 
-    /** Falls quickly with quiet chunks, rises slowly (about 40 s), ignores loud bursts such as speech. */
+    /**
+     * Falls quickly with quiet chunks and rises slowly. A loud chunk (speech) counts as at most 4x the
+     * current background, so talking barely moves it, yet after a moment of near-silence (for example
+     * while the microphone was busy) it still climbs back to the room's level within about 40 s.
+     */
     private void learnBackground(float rms) {
-        if (background < 0) background = rms;
+        if (background < 0) background = Math.max(rms, 1f);
         else if (rms < background) background += (rms - background) * 0.05f;
-        else if (rms < background * 4f) background += (rms - background) * 0.002f;
+        else background += (Math.min(rms, background * 4f) - background) * 0.002f;
+        background = Math.max(background, 1f);
     }
 
     public WakeWordEngine(byte[] melModel, byte[] embeddingModel, byte[] wakeModel) throws OrtException {
