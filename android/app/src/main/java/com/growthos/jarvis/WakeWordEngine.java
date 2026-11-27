@@ -44,35 +44,8 @@ public final class WakeWordEngine implements AutoCloseable {
     /** Loudness of the last chunk (RMS of 16-bit samples). */
     public volatile float lastRms;
 
-    /** Chunks quieter than this (about -47 dBFS) always count as silence. */
+    /** Chunks quieter than this (about -47 dBFS) count as silence. */
     private static final float QUIET_RMS = 150f;
-    /**
-     * Rooms are rarely that quiet (the Moto G31 hears about -45 dBFS of background hum indoors), so
-     * the models used to run on every chunk. Now a chunk also counts as quiet when it is less than
-     * twice (+6 dB) as loud as the room's usual background. Speech, even soft, is well above that,
-     * and any louder chunk turns full listening back on for at least 0.8 s.
-     */
-    private static final float ABOVE_BACKGROUND = 2f;
-    /** Never treat anything louder than this (about -35 dBFS) as background, even in a noisy room. */
-    private static final float MAX_QUIET_RMS = 600f;
-    /** Background loudness estimate: falls fast to quiet chunks, rises slowly (about 40 s), ignores loud bursts. */
-    private float background = -1f;
-    /** Time spent in each model since the last call to {@link #takeTimes}, in nanoseconds. */
-    private long melNanos, embNanos, wakeNanos;
-
-    /** Returns mel, embedding and wake-model time (ns) since the last call, and clears them. */
-    public long[] takeTimes() { long[] t = {melNanos, embNanos, wakeNanos}; melNanos = embNanos = wakeNanos = 0; return t; }
-
-    /** Current background loudness in dBFS (for the log). */
-    public float backgroundDb() { return background <= 1f ? -90f : (float) (20 * Math.log10(background / 32768.0)); }
-
-    private float quietLimit() { return background < 0 ? QUIET_RMS : Math.max(QUIET_RMS, Math.min(background * ABOVE_BACKGROUND, MAX_QUIET_RMS)); }
-
-    private void learnBackground(float rms) {
-        if (background < 0) background = rms;
-        else if (rms < background) background += (rms - background) * 0.05f;
-        else if (rms < background * 4f) background += (rms - background) * 0.002f;
-    }
     /** After this many quiet chunks in a row (0.8 s), embeddings of silence are reused instead of recomputed. */
     private static final int QUIET_CHUNKS_BEFORE_SKIP = 10;
 
@@ -139,16 +112,13 @@ public final class WakeWordEngine implements AutoCloseable {
         System.arraycopy(raw, rawFilled - keep, raw, 0, keep);
         for (int i = 0; i < CHUNK; i++) raw[keep + i] = pcm[i];
         rawFilled = keep + CHUNK;
-        long t0 = System.nanoTime();
         Collections.addAll(melFrames, melspectrogram(raw, rawFilled));
         trim(melFrames, MEL_MAX);
-        melNanos += System.nanoTime() - t0;
 
         double sum = 0;
         for (short v : pcm) sum += (double) v * v;
         lastRms = (float) Math.sqrt(sum / CHUNK);
-        quietChunks = lastRms < (skipSilence ? quietLimit() : QUIET_RMS) ? quietChunks + 1 : 0;
-        if (skipSilence) learnBackground(lastRms);
+        quietChunks = lastRms < QUIET_RMS ? quietChunks + 1 : 0;
         totalChunks++;
         if (skipSilence && quietChunks > QUIET_CHUNKS_BEFORE_SKIP && !features.isEmpty()) {
             // Nothing but near-silence for the whole embedding window: its embedding would be the
@@ -164,15 +134,11 @@ public final class WakeWordEngine implements AutoCloseable {
         float[][] last = new float[MEL_WINDOW][];
         int skip = melFrames.size() - MEL_WINDOW, i = 0, j = 0;
         for (float[] f : melFrames) { if (i++ >= skip) last[j++] = f; }
-        long t1 = System.nanoTime();
         features.add(embedding(last, 0));
         trim(features, FEATURE_MAX);
         lastSkipped = false;
-        long t2 = System.nanoTime();
-        embNanos += t2 - t1;
 
         float score = predict();
-        wakeNanos += System.nanoTime() - t2;
         return predictions++ < WARMUP_PREDICTIONS ? 0f : score;
     }
 
