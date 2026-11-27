@@ -263,7 +263,7 @@ public final class WakeWordService extends Service {
         int min = AudioRecord.getMinBufferSize(16000, AudioFormat.CHANNEL_IN_MONO, AudioFormat.ENCODING_PCM_16BIT);
         AudioRecord rec;
         try {
-            rec = new AudioRecord(MediaRecorder.AudioSource.VOICE_RECOGNITION, 16000, AudioFormat.CHANNEL_IN_MONO, AudioFormat.ENCODING_PCM_16BIT, Math.max(min, WakeWordEngine.CHUNK * 2 * 4));
+            rec = new AudioRecord(MediaRecorder.AudioSource.VOICE_RECOGNITION, 16000, AudioFormat.CHANNEL_IN_MONO, AudioFormat.ENCODING_PCM_16BIT, Math.max(min, WakeWordEngine.CHUNK * 2 * 40)); // 3.2 s: room to catch up after quiet stretches
         } catch (SecurityException e) { fail("Microphone permission is missing"); return; }
         if (rec.getState() != AudioRecord.STATE_INITIALIZED) { rec.release(); retryLater("Microphone is busy. Trying again."); return; }
         float threshold = prefs(this).getFloat(KEY_THRESHOLD, DEFAULT_THRESHOLD);
@@ -275,7 +275,7 @@ public final class WakeWordService extends Service {
         boolean useBase = AppMatcher.norm(prefs(this).getString(KEY_PHRASE, "Hey Jarvis")).replace(" ", "").equals("heyjarvis");
         short[] chunk = new short[WakeWordEngine.CHUNK];
         long cpuNanos = 0, chunks = 0;
-        minuteModelNanos = minuteMatchNanos = 0; minuteSkipped = 0; java.util.Arrays.fill(minuteDb, 0);
+        minuteModelNanos = minuteMatchNanos = 0; minuteSkipped = 0; java.util.Arrays.fill(minuteDb, 0); engine.takeTimes();
         AudioManager am = (AudioManager) getSystemService(AUDIO_SERVICE);
         try {
             rec.startRecording();
@@ -304,8 +304,10 @@ public final class WakeWordService extends Service {
                     prefs(this).edit().putFloat(KEY_CPU, cpuNanos / 1e6f / chunks).apply();
                     engineInfo = engine.backend + String.format(Locale.US, " · %.0f%% silence skipped", engine.skippedShare() * 100);
                     // One line a minute so battery use can be checked with "adb logcat -s JarvisWake" (no audio, just numbers).
-                    Log.i(TAG, String.format(Locale.US, "last minute: models %.1f ms + voice check %.1f ms per 80 ms chunk, %d%% silence skipped, loudness p20 %d / p50 %d / p90 %d dBFS",
-                            minuteModelNanos / 1e6 / 750, minuteMatchNanos / 1e6 / 750, minuteSkipped * 100 / 750, dbPercentile(20), dbPercentile(50), dbPercentile(90)));
+                    long[] mt = engine.takeTimes();
+                    Log.i(TAG, String.format(Locale.US, "last minute: models %.1f ms (mel %.1f, embedding %.1f, wake %.1f) + voice check %.1f ms per 80 ms chunk, %d%% quiet chunks skipped, %d late embeddings, loudness p20 %d / p50 %d / p90 %d dBFS, background %.0f dBFS",
+                            minuteModelNanos / 1e6 / 750, mt[0] / 1e6 / 750, mt[1] / 1e6 / 750, mt[2] / 1e6 / 750, minuteMatchNanos / 1e6 / 750, minuteSkipped * 100 / 750, mt[3],
+                            dbPercentile(20), dbPercentile(50), dbPercentile(90), engine.backgroundDb()));
                     minuteModelNanos = minuteMatchNanos = 0; minuteSkipped = 0; java.util.Arrays.fill(minuteDb, 0);
                 }
                 long now = SystemClock.elapsedRealtime();
@@ -314,6 +316,7 @@ public final class WakeWordService extends Service {
                 bestMatch = Math.max(bestMatch, match);
                 boolean woke = (useBase && score >= threshold) || match >= 1f;
                 if (!woke) continue;
+                Log.i(TAG, String.format(Locale.US, "wake: model score %.2f, voice match %.2f, loudness %.0f dBFS", score, match, liveDb));
                 score = Math.max(score, Math.min(1f, match));
                 if (!inCall(am)) {
                     final float s = score;
