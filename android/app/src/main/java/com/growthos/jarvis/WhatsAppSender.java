@@ -57,16 +57,21 @@ public final class WhatsAppSender extends AccessibilityService {
      * app windows (the active one can be the keyboard or a system bar). Null if neither app is on screen.
      */
     private AccessibilityNodeInfo appRoot() {
-        AccessibilityNodeInfo r = getRootInActiveWindow();
-        if (r != null && allowedPkg(r.getPackageName())) return r;
+        // Jarvis's own windows (assistant overlay, setup screen) come last, so "scroll" and
+        // "search" act on the app the user is looking at, not on Jarvis.
+        String self = getPackageName();
+        AccessibilityNodeInfo r = getRootInActiveWindow(), own = null;
+        if (r != null && allowedPkg(r.getPackageName())) { if (!self.contentEquals(r.getPackageName())) return r; own = r; }
         try {
             for (android.view.accessibility.AccessibilityWindowInfo w : getWindows()) {
                 if (w.getType() != android.view.accessibility.AccessibilityWindowInfo.TYPE_APPLICATION) continue;
                 AccessibilityNodeInfo wr = w.getRoot();
-                if (wr != null && allowedPkg(wr.getPackageName())) return wr;
+                if (wr == null || !allowedPkg(wr.getPackageName())) continue;
+                if (!self.contentEquals(wr.getPackageName())) return wr;
+                if (own == null) own = wr;
             }
         } catch (Exception ignored) { }
-        return null;
+        return own;
     }
 
     /** Package of the app on screen, if it is one this helper may control; else null. */
@@ -257,6 +262,143 @@ public final class WhatsAppSender extends AccessibilityService {
             if (t.length() > 1 && !out.contains(t)) out.add(t);
         }
         for (int i = 0; i < n.getChildCount(); i++) collectText(n.getChild(i), out, depth + 1);
+    }
+
+    // ---------- search inside the app on screen ----------
+
+    /** AI chat apps: "search X" there means ask the app X (type it and press send). */
+    static final Pattern AI_CHAT = Pattern.compile("com\\.anthropic\\.claude|com\\.openai\\.chatgpt|com\\.google\\.android\\.apps\\.bard|ai\\.perplexity\\.app\\.android|com\\.microsoft\\.copilot|com\\.deepseek\\.chat");
+    /** Apps that show results while typing and whose Enter key may ask Meta AI instead: don't press Enter there. */
+    private static final Pattern LIVE_RESULTS = Pattern.compile("com\\.whatsapp(?:\\.w4b)?|com\\.instagram\\.android|com\\.facebook\\.(?:katana|orca)");
+    private static final Pattern SEARCH_WORD = Pattern.compile("(?i).*\\bsearch.*");
+    private static final long STEP_MS = 900L;
+    private static final int MAX_STEPS = 4;
+
+    /**
+     * Searches inside the app on screen, like a person would: uses its search box, or taps its
+     * search button / tab first and then types. In AI chat apps it types into the chat box and sends.
+     * Never types into password boxes, never acts in money apps, and in other apps never presses
+     * a chat's Send button. Calls done on the main thread with: "searched", "asked", "off",
+     * "blocked" (no app it may control on screen) or "none" (no search found).
+     */
+    static void searchInApp(String query, java.util.function.Consumer<String> done) {
+        main.post(() -> searchStep(query, 0, false, false, null, done));
+    }
+
+    private static void searchStep(String query, int step, boolean tapped, boolean wentBack, String pkg0, java.util.function.Consumer<String> done) {
+        WhatsAppSender s = instance;
+        if (s == null) { done.accept("off"); return; }
+        AccessibilityNodeInfo root = s.appRoot();
+        if (root == null || root.getPackageName() == null) { done.accept("blocked"); return; }
+        String pkg = root.getPackageName().toString();
+        if (pkg0 != null && !pkg0.equals(pkg)) { done.accept("none"); return; } // the app closed or changed
+        if (AI_CHAT.matcher(pkg).matches()) { askAi(s, root, query, done); return; }
+        AccessibilityNodeInfo box = searchBox(root, tapped);
+        if (box != null) {
+            boolean ok = setText(box, query);
+            boolean enter = !LIVE_RESULTS.matcher(pkg).matches();
+            if (ok) main.postDelayed(() -> { if (enter) pressEnter(box); done.accept("searched"); }, 350);
+            else done.accept("none");
+            return;
+        }
+        if (step + 1 < MAX_STEPS) {
+            AccessibilityNodeInfo btn = searchButton(root);
+            if (btn != null && click(s, btn)) { main.postDelayed(() -> searchStep(query, step + 1, true, wentBack, pkg, done), STEP_MS); return; }
+            // Deep inside the app (for example inside a WhatsApp chat): go back once and look again.
+            if (!wentBack && !tapped && s.performGlobalAction(GLOBAL_ACTION_BACK)) { main.postDelayed(() -> searchStep(query, step + 1, false, true, pkg, done), STEP_MS); return; }
+        }
+        done.accept("none");
+    }
+
+    /** A visible text box for searching. After tapping a search button, the focused text box counts too. */
+    private static AccessibilityNodeInfo searchBox(AccessibilityNodeInfo root, boolean tapped) {
+        AccessibilityNodeInfo f = root.findFocus(AccessibilityNodeInfo.FOCUS_INPUT);
+        if (f != null && f.isEditable() && !f.isPassword() && (tapped || isSearchy(f))) return f;
+        AccessibilityNodeInfo[] out = {null};
+        findEditable(root, out, 0);
+        return out[0];
+    }
+
+    private static void findEditable(AccessibilityNodeInfo n, AccessibilityNodeInfo[] out, int depth) {
+        if (n == null || depth > 40 || out[0] != null) return;
+        if (n.isEditable() && n.isVisibleToUser() && !n.isPassword() && isSearchy(n)) { out[0] = n; return; }
+        for (int i = 0; i < n.getChildCount(); i++) findEditable(n.getChild(i), out, depth + 1);
+    }
+
+    /** The best visible "Search" button, icon or tab (short labels first). */
+    private static AccessibilityNodeInfo searchButton(AccessibilityNodeInfo root) {
+        AccessibilityNodeInfo[] best = {null};
+        int[] bestLen = {Integer.MAX_VALUE};
+        findSearchButton(root, best, bestLen, 0);
+        return best[0];
+    }
+
+    private static void findSearchButton(AccessibilityNodeInfo n, AccessibilityNodeInfo[] best, int[] bestLen, int depth) {
+        if (n == null || depth > 40) return;
+        if (n.isVisibleToUser() && !n.isEditable() && isSearchy(n)) {
+            String l = label(n);
+            int len = l.isEmpty() ? 30 : l.length(); // icon found only by its view id
+            // "Web search" style switches are settings, not a search box.
+            if (len <= 40 && !n.isCheckable() && len < bestLen[0]) { best[0] = n; bestLen[0] = len; }
+        }
+        for (int i = 0; i < n.getChildCount(); i++) findSearchButton(n.getChild(i), best, bestLen, depth + 1);
+    }
+
+    private static boolean isSearchy(AccessibilityNodeInfo n) {
+        CharSequence id = n.getViewIdResourceName();
+        CharSequence hint = android.os.Build.VERSION.SDK_INT >= 26 ? n.getHintText() : null;
+        String l = label(n);
+        return SEARCH_WORD.matcher(l).matches() || (hint != null && SEARCH_WORD.matcher(hint).matches())
+                || (id != null && id.toString().toLowerCase(java.util.Locale.ROOT).contains("search"));
+    }
+
+    /** Claude, ChatGPT, Gemini...: type the question into the chat box and press send. */
+    private static void askAi(WhatsAppSender s, AccessibilityNodeInfo root, String query, java.util.function.Consumer<String> done) {
+        AccessibilityNodeInfo box = root.findFocus(AccessibilityNodeInfo.FOCUS_INPUT);
+        if (box == null || !box.isEditable()) box = firstEditable(root, 0);
+        if (box == null || box.isPassword() || !setText(box, query)) { done.accept("none"); return; }
+        final AccessibilityNodeInfo typed = box;
+        main.postDelayed(() -> {
+            AccessibilityNodeInfo r = s.appRoot();
+            AccessibilityNodeInfo send = r == null ? null : bySendLabel(r, 0);
+            if (send != null && click(s, send)) done.accept("asked");
+            else { pressEnter(typed); done.accept("asked"); }
+        }, 500);
+    }
+
+    private static final Pattern SEND_LABEL = Pattern.compile("(?i)send|send message|submit|send prompt");
+
+    private static AccessibilityNodeInfo bySendLabel(AccessibilityNodeInfo n, int depth) {
+        if (n == null || depth > 40) return null;
+        if (n.isVisibleToUser() && n.isEnabled() && SEND_LABEL.matcher(label(n).trim()).matches()) return n;
+        for (int i = 0; i < n.getChildCount(); i++) { AccessibilityNodeInfo r = bySendLabel(n.getChild(i), depth + 1); if (r != null) return r; }
+        return null;
+    }
+
+    private static boolean setText(AccessibilityNodeInfo box, String text) {
+        if (box.isPassword()) return false;
+        box.performAction(AccessibilityNodeInfo.ACTION_CLICK);
+        box.performAction(AccessibilityNodeInfo.ACTION_FOCUS);
+        android.os.Bundle b = new android.os.Bundle();
+        b.putCharSequence(AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE, text);
+        return box.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, b);
+    }
+
+    /** Presses the keyboard's Search/Enter key on the box (Android 11+). Many apps already show results while typing. */
+    private static void pressEnter(AccessibilityNodeInfo box) {
+        if (android.os.Build.VERSION.SDK_INT >= 30) {
+            try { box.refresh(); box.performAction(AccessibilityNodeInfo.AccessibilityAction.ACTION_IME_ENTER.getId()); } catch (Exception ignored) { }
+        }
+    }
+
+    private static boolean click(WhatsAppSender s, AccessibilityNodeInfo n) {
+        AccessibilityNodeInfo t = n;
+        while (t != null && !t.isClickable()) t = t.getParent();
+        if (t != null && t.performAction(AccessibilityNodeInfo.ACTION_CLICK)) return true;
+        Rect r = new Rect(); n.getBoundsInScreen(r);
+        if (r.isEmpty()) return false;
+        Path p = new Path(); p.moveTo(r.centerX(), r.centerY());
+        return s.dispatchGesture(new GestureDescription.Builder().addStroke(new GestureDescription.StrokeDescription(p, 0, 60)).build(), null, null);
     }
 
     /** Home, recent apps, notifications. These work on any screen. */

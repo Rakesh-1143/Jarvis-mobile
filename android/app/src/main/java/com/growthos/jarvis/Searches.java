@@ -11,6 +11,11 @@ final class Searches {
             MAPS = "com.google.android.apps.maps", SPOTIFY = "com.spotify.music", CHROME = "com.android.chrome",
             GOOGLE = "com.google.android.googlequicksearchbox";
 
+    /** Apps whose search Jarvis opens with a link or intent (no screen tapping needed). */
+    static boolean knownApp(String pkg) {
+        return pkg != null && (pkg.equals(YOUTUBE) || pkg.equals(PLAY) || pkg.equals(MAPS) || pkg.equals(SPOTIFY) || pkg.equals(CHROME) || pkg.equals(GOOGLE));
+    }
+
     /** pkg null = search the web. Returns null when the app has no search Jarvis can open. */
     static Intent intent(Context c, String pkg, String q) {
         String e = Uri.encode(q);

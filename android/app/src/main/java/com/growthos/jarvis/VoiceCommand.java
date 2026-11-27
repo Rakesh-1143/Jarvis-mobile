@@ -32,6 +32,8 @@ public final class VoiceCommand {
     private static final Pattern SEARCH_WEB = Pattern.compile("^(?:please\\s+)?(?:search|search for|google|look up)\\s+(?:for\\s+)?(.+)$");
     /** Apps where "X in <app>" alone clearly means a search. */
     private static final Pattern SEARCHABLE = Pattern.compile("^(?:youtube|you tube|google|chrome|play store|maps|google maps|spotify|amazon|flipkart)$");
+    // "search", "search something on WhatsApp": Jarvis asks what to search
+    private static final Pattern SEARCH_ASK = Pattern.compile("^(?:search|search for|find|search something|do a search)(?:" + IN_APP + ")?$");
     private static final Pattern BARE_IN_APP = Pattern.compile("^(.+?)" + IN_APP + "$");
     private static final String POLITE = "(?:please|pls|can you|could you|will you|would you|can u|i want to|i want you to|i need to|i would like to|just|boss|now|ok|okay)";
     private static final Pattern OPEN_WHATSAPP_THEN = Pattern.compile("^(?:open|go to|launch|start)\\s+(?:whatsapp|whats app)\\s+(?:and\\s+|then\\s+|and then\\s+)?(.+)$");
@@ -101,6 +103,8 @@ public final class VoiceCommand {
         }
         m = SEND_NAME_FIRST.matcher(w);
         if (m.matches()) return send(m.group(1), m.group(2) == null ? "" : m.group(2));
+        m = SEARCH_ASK.matcher(w);
+        if (m.matches()) return search(m.group(1) == null ? "" : m.group(1), "");
         m = SEARCH_IN.matcher(w);
         if (m.matches()) return search(m.group(2), m.group(1));
         m = OPEN_AND_SEARCH.matcher(w);
@@ -314,7 +318,7 @@ public final class VoiceCommand {
         }
     }
 
-    private static VoiceCommand search(String app, String query) {
+    static VoiceCommand search(String app, String query) {
         return new VoiceCommand(Type.SEARCH, app.trim(), query.trim());
     }
 

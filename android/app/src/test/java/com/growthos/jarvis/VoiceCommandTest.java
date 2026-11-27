@@ -127,6 +127,14 @@ public class VoiceCommandTest {
         search("find pizza near me in maps", "maps", "pizza near me");
         search("search whatsapp web in play store", "play store", "whatsapp web");
         search("search weather today", "", "weather today");
+        // In-app search: no app named = the app on screen; no words = Jarvis asks.
+        search("search ravi", "", "ravi");
+        search("search ravi in whatsapp", "whatsapp", "ravi");
+        search("search cricket reels on instagram", "instagram", "cricket reels");
+        search("search best java course on claude", "claude", "best java course");
+        search("search", "", "");
+        search("search in whatsapp", "whatsapp", "");
+        search("search something on instagram", "instagram", "");
         assertEquals(VoiceCommand.Type.OPEN_APP, VoiceCommand.parse("open play store").type);
         assertEquals(VoiceCommand.Type.OPEN_APP, VoiceCommand.parse("open jio hotstar").type);
         assertEquals(VoiceCommand.Type.SEND_MESSAGE, VoiceCommand.parse("send message to ravi saying I am in YouTube").type);
@@ -171,6 +179,8 @@ public class VoiceCommandTest {
         is("Scroll up please", VoiceCommand.Type.SCROLL, "up");
         is("can you scroll down more", VoiceCommand.Type.SCROLL, "down");
         is("show more", VoiceCommand.Type.SCROLL, "down");
+        is("scroll up", VoiceCommand.Type.SCROLL, "up");
+        is("swipe down", VoiceCommand.Type.SCROLL, "down");
         is("play video", VoiceCommand.Type.PLAY_ITEM, "1");
         is("play the first video", VoiceCommand.Type.PLAY_ITEM, "1");
         is("play the second video", VoiceCommand.Type.PLAY_ITEM, "2");

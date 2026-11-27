@@ -814,26 +814,58 @@ public final class WakeWordService extends Service {
                 callSomeone(heard, c.target);
                 return;
             case SEARCH: {
-                // "search latest movies" while YouTube is open searches YouTube.
-                String fg = WhatsAppSender.foregroundApp();
-                if (c.target.isEmpty() && WhatsAppSender.YOUTUBE.equals(fg)) c = VoiceCommand.parse("search " + c.message + " on youtube");
-                else if (c.target.isEmpty()) remember(heard, "web search; screen: " + WhatsAppSender.describeScreen());
+                // "search X" alone searches inside the app on screen (WhatsApp, Instagram, Claude, YouTube, Google...).
+                String onScreen = WhatsAppSender.foregroundApp();
+                final String fg = getPackageName().equals(onScreen) ? null : onScreen;
+                final List<String> g0 = guesses;
+                final List<AppMatcher.App> a0 = apps;
+                if (c.message.isEmpty()) {
+                    final VoiceCommand ask = c;
+                    say("What should I search, Boss?", () -> listen(r -> {
+                        String q = r.isEmpty() || r.get(0) == null ? "" : r.get(0).trim();
+                        if (q.isEmpty() || VoiceCommand.parse(q).type == VoiceCommand.Type.CANCEL) { remember(heard, "search cancelled"); say("Okay Boss.", this::endInteraction); return; }
+                        execute(heard + " " + q, VoiceCommand.search(ask.target, q), g0, a0, true);
+                    }));
+                    return;
+                }
                 AppMatcher.App app = c.target.isEmpty() ? null : AppMatcher.match(c.target, apps);
                 if (!c.target.isEmpty() && app == null && !c.target.matches("(?:google|web|internet)")) {
                     remember(heard, "app not found: " + c.target);
                     say("Boss, I could not find " + c.target + ". That application is not installed.", this::endInteraction);
                     return;
                 }
-                Intent search = Searches.intent(this, app == null ? null : app.packageName, c.message);
-                String where = app == null ? "Google" : app.label;
-                if (search == null) {
-                    Intent launch = getPackageManager().getLaunchIntentForPackage(app.packageName);
-                    remember(heard, "no search in " + where + ", opened it");
-                    say("Boss, I can't search inside " + where + " yet. Opening " + where + ".", () -> { if (launch != null) AppOpener.open(this, launch); endInteraction(); });
+                final String query = c.message;
+                // Which app: the one named ("... on WhatsApp"), else the one on screen, else the web.
+                String pkg = app != null ? app.packageName : c.target.isEmpty() ? fg : null;
+                String where = app != null ? app.label : pkg != null ? appLabel(pkg) : "Google";
+                Intent search = Searches.knownApp(pkg) || pkg == null ? Searches.intent(this, pkg, query) : null;
+                if (search != null) {
+                    remember(heard, "searched " + where + " for: " + query);
+                    say("Searching " + query + " on " + where + ".", () -> { AppOpener.open(this, search); endInteraction(); });
                     return;
                 }
-                remember(heard, "searched " + where + " for: " + c.message);
-                say("Searching " + c.message + " on " + where + ".", () -> { AppOpener.open(this, search); endInteraction(); });
+                if (!WhatsAppSender.running()) {
+                    // Without Jarvis control: the app's own Android search, else open the app.
+                    Intent std = Searches.intent(this, pkg, query);
+                    Intent launch = std != null ? std : getPackageManager().getLaunchIntentForPackage(pkg);
+                    remember(heard, std != null ? "searched " + where + " for: " + query : "search in " + where + ": Jarvis control is off");
+                    say(std != null ? "Searching " + query + " on " + where + "." : "Boss, turn on Jarvis control in Jarvis setup so I can search inside " + where + ".",
+                            () -> { if (launch != null && (std != null || !pkg.equals(fg))) AppOpener.open(this, launch); endInteraction(); });
+                    return;
+                }
+                final String target = pkg;
+                Runnable inApp = () -> WhatsAppSender.searchInApp(query, result -> {
+                    remember(heard, "search in " + where + " for: " + query + " -> " + result + ("searched".equals(result) || "asked".equals(result) ? "" : "; screen: " + WhatsAppSender.describeScreen()));
+                    if ("searched".equals(result) || "asked".equals(result)) { endInteraction(); return; }
+                    Intent std = Searches.intent(this, target, query);
+                    if (std != null) { AppOpener.open(this, std); endInteraction(); return; }
+                    say("Boss, I couldn't find the search in " + where + ".", this::endInteraction);
+                });
+                if (pkg.equals(fg)) { say("Searching " + query + " in " + where + ".", inApp); return; }
+                // Named app that is not on screen: open it, give it time to load, then search inside.
+                Intent launch = getPackageManager().getLaunchIntentForPackage(pkg);
+                if (launch == null) { remember(heard, where + " cannot be opened"); say("Boss, " + where + " cannot be opened.", this::endInteraction); return; }
+                say("Opening " + where + " and searching " + query + ".", () -> { AppOpener.open(this, launch); main.postDelayed(inApp, 2500); });
                 return;
             }
             case SEND_MESSAGE:
@@ -1136,6 +1168,11 @@ public final class WakeWordService extends Service {
             if (label != null) apps.add(new AppMatcher.App(label.toString(), r.activityInfo.packageName));
         }
         return apps;
+    }
+
+    private String appLabel(String pkg) {
+        try { return getPackageManager().getApplicationLabel(getPackageManager().getApplicationInfo(pkg, 0)).toString(); }
+        catch (Exception e) { return "this app"; }
     }
 
     private void endInteraction() {
