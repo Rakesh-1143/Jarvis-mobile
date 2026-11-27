@@ -83,6 +83,13 @@ public final class VoiceCommand {
         if (BACK.matcher(t).matches()) return new VoiceCommand(Type.BACK, "");
         VoiceCommand d = device(t);
         if (d != null) return d;
+        // "search ravi in WhatsApp" searches inside WhatsApp (checked before "... in WhatsApp" is cut off below).
+        if (t.startsWith("search")) {
+            Matcher a = SEARCH_ASK.matcher(t);
+            if (a.matches()) return search(a.group(1) == null ? "" : a.group(1), "");
+            a = SEARCH_IN.matcher(t);
+            if (a.matches()) return search(a.group(2), a.group(1));
+        }
         String w = t.replaceFirst("\\s+(?:on|in|through|via|using)\\s+(?:whatsapp|whats app)$", "");
         // "open WhatsApp (and) send message to Ravi saying hi" -> "send message to Ravi saying hi"
         Matcher m = OPEN_WHATSAPP_THEN.matcher(w);
