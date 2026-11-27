@@ -59,7 +59,11 @@ public final class MainActivity extends Activity {
     private void dispatchPendingShare(){if(webView==null||pendingShareJson==null)return;String q=JSONObject.quote(pendingShareJson);webView.post(()->webView.evaluateJavascript("window.dispatchEvent(new CustomEvent('kalki-share',{detail:JSON.parse("+q+")}));",null));}
     private void dispatch(String event,String value){if(webView==null)return;webView.post(()->webView.evaluateJavascript("window.dispatchEvent(new CustomEvent("+JSONObject.quote(event)+",{detail:"+JSONObject.quote(value)+"}));",null));}
     private String JSONObjectQuote(String s){return org.json.JSONObject.quote(s);}
-    @Override protected void onStart(){super.onStart();IntentFilter f=new IntentFilter(WakeWordService.ACTION_COMMAND);if(Build.VERSION.SDK_INT>=33)registerReceiver(wakeReceiver,f,RECEIVER_NOT_EXPORTED);else registerReceiver(wakeReceiver,f);}
+    @Override protected void onStart(){super.onStart();IntentFilter f=new IntentFilter(WakeWordService.ACTION_COMMAND);if(Build.VERSION.SDK_INT>=33)registerReceiver(wakeReceiver,f,RECEIVER_NOT_EXPORTED);else registerReceiver(wakeReceiver,f);
+        // If "Hey Jarvis" was switched on but the listener died (app update, app disabled/re-enabled,
+        // KALKI no longer the default assistant), opening the app brings it back. The app is in the
+        // foreground here, so Android allows starting the microphone service.
+        if(WakeWordService.isEnabled(this)&&!WakeWordService.running)WakeWordService.start(this,null);}
     @Override protected void onStop(){try{unregisterReceiver(wakeReceiver);}catch(Exception ignored){}super.onStop();}
     private boolean openExternalIfNeeded(Uri u){String scheme=u.getScheme();if(("http".equalsIgnoreCase(scheme)||"https".equalsIgnoreCase(scheme))&&isAppHost(u))return false;try{startActivity(new Intent(Intent.ACTION_VIEW,u));}catch(Exception e){Toast.makeText(this,"No app can open this link",Toast.LENGTH_SHORT).show();}return true;}
     /** KALKI's own pages stay in the app; other sites (YouTube, Google sign-in, ...) open in their app or the browser. */
