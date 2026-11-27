@@ -160,6 +160,7 @@ public final class WakeWordService extends Service {
     /** "Hello Boss!" once per unlock, only when it won't disturb: not in a call, not silent/vibrate, no music playing. */
     private final android.content.BroadcastReceiver unlockReceiver = new android.content.BroadcastReceiver() {
         @Override public void onReceive(Context c, Intent i) {
+            if (Intent.ACTION_USER_PRESENT.equals(i.getAction())) VoiceUnlock.unlocked(c);
             if (!Intent.ACTION_USER_PRESENT.equals(i.getAction()) || !prefs(c).getBoolean(KEY_GREET, true)) return;
             long now = SystemClock.elapsedRealtime();
             if (now - lastGreetAt < 30_000L || mode == Mode.RESPONDING || !ttsReady || tts == null) return;
@@ -275,6 +276,7 @@ public final class WakeWordService extends Service {
         boolean useBase = AppMatcher.norm(prefs(this).getString(KEY_PHRASE, "Hey Jarvis")).replace(" ", "").equals("heyjarvis");
         short[] chunk = new short[WakeWordEngine.CHUNK];
         long cpuNanos = 0, chunks = 0;
+        minuteModelNanos = minuteMatchNanos = 0; minuteSkipped = 0; java.util.Arrays.fill(minuteDb, 0);
         AudioManager am = (AudioManager) getSystemService(AUDIO_SERVICE);
         try {
             rec.startRecording();
@@ -286,16 +288,26 @@ public final class WakeWordService extends Service {
                 float score = engine.process(chunk);
                 liveDb = engine.lastRms <= 1f ? -90f : (float) (20 * Math.log10(engine.lastRms / 32768.0));
                 liveScore = score;
+                long t1 = SystemClock.elapsedRealtimeNanos();
                 float match = 0f;
                 if (personal != null && !engine.lastSkipped) {
                     float d = personal.distance(engine.lastFrames(span));
                     match = d <= 0 ? 2f : Math.min(2f, personalLimit / d);
                 }
                 liveMatch = match;
-                cpuNanos += SystemClock.elapsedRealtimeNanos() - t0;
+                long t2 = SystemClock.elapsedRealtimeNanos();
+                cpuNanos += t2 - t0;
+                minuteModelNanos += t1 - t0;
+                minuteMatchNanos += t2 - t1;
+                if (engine.lastSkipped) minuteSkipped++;
+                minuteDb[Math.max(0, Math.min(minuteDb.length - 1, (int) ((liveDb + 90f) / 3f)))]++;
                 if (++chunks % 750 == 0) { // about once a minute
                     prefs(this).edit().putFloat(KEY_CPU, cpuNanos / 1e6f / chunks).apply();
                     engineInfo = engine.backend + String.format(Locale.US, " · %.0f%% silence skipped", engine.skippedShare() * 100);
+                    // One line a minute so battery use can be checked with "adb logcat -s JarvisWake" (no audio, just numbers).
+                    Log.i(TAG, String.format(Locale.US, "last minute: models %.1f ms + voice check %.1f ms per 80 ms chunk, %d%% silence skipped, loudness p20 %d / p50 %d / p90 %d dBFS",
+                            minuteModelNanos / 1e6 / 750, minuteMatchNanos / 1e6 / 750, minuteSkipped * 100 / 750, dbPercentile(20), dbPercentile(50), dbPercentile(90)));
+                    minuteModelNanos = minuteMatchNanos = 0; minuteSkipped = 0; java.util.Arrays.fill(minuteDb, 0);
                 }
                 long now = SystemClock.elapsedRealtime();
                 if (now - bestScoreAt > 10000) { bestScore = 0; bestMatch = 0; bestScoreAt = now; }
@@ -317,6 +329,17 @@ public final class WakeWordService extends Service {
             try { rec.stop(); } catch (Exception ignored) { }
             rec.release();
         }
+    }
+
+    private long minuteModelNanos, minuteMatchNanos;
+    private int minuteSkipped;
+    /** Loudness of the last minute's chunks in 3 dB steps from -90 dBFS. */
+    private final int[] minuteDb = new int[31];
+    private int dbPercentile(int pct) {
+        int total = 0; for (int c : minuteDb) total += c;
+        int need = Math.max(1, total * pct / 100), seen = 0;
+        for (int i = 0; i < minuteDb.length; i++) { seen += minuteDb[i]; if (seen >= need) return -90 + i * 3; }
+        return 0;
     }
 
     private int retries;
@@ -428,6 +451,8 @@ public final class WakeWordService extends Service {
         i.putExtra(RecognizerIntent.EXTRA_LANGUAGE, "en-IN");
         i.putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 3);
         i.putExtra(RecognizerIntent.EXTRA_CALLING_PACKAGE, getPackageName());
+        // The spoken password: keep it on the phone when the offline engine can hear it.
+        if (secretListen) i.putExtra(RecognizerIntent.EXTRA_PREFER_OFFLINE, true);
         try { recognizer.startListening(i); }
         catch (Exception e) { releaseRecognizer(); say("Sorry Boss, I couldn't listen just now.", this::endInteraction); return; }
         main.postDelayed(commandTimeout, COMMAND_TIMEOUT_MS);
@@ -475,7 +500,8 @@ public final class WakeWordService extends Service {
         if (apps == null) apps = launcherApps();
         if (VoiceCommand.isPrivate(c.type) && phoneLocked()) {
             remember(heard, "refused on lock screen: " + c.type);
-            say("Boss, please unlock your phone first. I don't do that on the lock screen.", this::endInteraction);
+            say(VoiceUnlock.MODE_OFF.equals(VoiceUnlock.mode(this)) ? "Boss, please unlock your phone first. I don't do that on the lock screen."
+                    : "Boss, please unlock your phone first. Say: unlock my phone.", this::endInteraction);
             return;
         }
         switch (c.type) {
@@ -555,6 +581,7 @@ public final class WakeWordService extends Service {
                 remember(heard, "repeat");
                 say(lastSpoken.isEmpty() ? "Boss, I haven't said anything yet." : lastSpoken, this::endInteraction);
                 return;
+            case UNLOCK: { remember(heard, "unlock asked"); unlockByVoice(); return; }
             case SCREENSHOT: case LOCK: {
                 if (!WhatsAppSender.running()) { remember(heard, "Jarvis control is off"); say(CONTROL_OFF, this::endInteraction); return; }
                 final boolean shot = c.type == VoiceCommand.Type.SCREENSHOT;
@@ -1105,6 +1132,55 @@ public final class WakeWordService extends Service {
         p.edit().putString(KEY_LAST_COMMAND, heard).putString(KEY_COMMAND_LOG, b.toString()).apply();
     }
 
+    // ---------- voice unlock ----------
+
+    /** True while listening for the spoken password: the recognizer prefers offline, and the words are never logged. */
+    private boolean secretListen;
+
+    /** "Unlock my phone": asks for the password, then types the PIN on the lock screen. See VoiceUnlock. */
+    private void unlockByVoice() {
+        String m = VoiceUnlock.mode(this);
+        if (!PinTyper.locked(this)) { say("Boss, your phone is already unlocked.", this::endInteraction); return; }
+        if (VoiceUnlock.MODE_OFF.equals(m)) { say("Boss, voice unlock is off. You can turn it on in Jarvis setup.", this::endInteraction); return; }
+        if (!WhatsAppSender.running()) { remember("", "voice unlock: Jarvis control is off"); say(CONTROL_OFF, this::endInteraction); return; }
+        if (VoiceUnlock.lockedOut(this)) {
+            remember("", "voice unlock: stopped after " + VoiceUnlock.MAX_WRONG + " wrong tries");
+            say("Boss, there were too many wrong passwords. Please unlock with your fingerprint or PIN.", this::endInteraction);
+            return;
+        }
+        final boolean sayPin = VoiceUnlock.MODE_SAY_PIN.equals(m);
+        say(sayPin ? "Tell me your PIN, Boss." : "What's the password, Boss?", () -> { secretListen = true; listen(r -> onUnlockAnswer(r, sayPin)); });
+    }
+
+    private void onUnlockAnswer(List<String> guesses, boolean sayPin) {
+        secretListen = false;
+        String pin = null;
+        if (sayPin) { for (String g : guesses) { pin = VoiceUnlock.digitsFromSpeech(g); if (pin != null) break; } }
+        else if (VoiceUnlock.checkSecret(this, guesses)) {
+            pin = VoiceUnlock.storedPin(this);
+            if (pin == null) { remember("", "voice unlock: saved PIN could not be read"); say("Boss, I couldn't read the saved PIN. Please set voice unlock again in Jarvis setup.", this::endInteraction); return; }
+        }
+        if (pin == null) { wrongUnlock(sayPin ? "Sorry Boss, I didn't hear a PIN." : "Sorry Boss, that's not the password."); return; }
+        remember("", "voice unlock: typing PIN (hidden)");
+        main.removeCallbacks(watchdog);
+        main.postDelayed(watchdog, RESPONSE_WATCHDOG_MS);
+        WhatsAppSender.typeLockScreenPin(pin, r -> main.post(() -> {
+            remember("", "voice unlock: " + r);
+            switch (r) {
+                case PinTyper.OK: say("Unlocked, Boss.", this::endInteraction); break;
+                case PinTyper.WRONG: wrongUnlock(sayPin ? "Boss, that PIN didn't work." : "Boss, the saved PIN didn't work. Please set it again in Jarvis setup."); break;
+                case PinTyper.NO_PAD: say("Boss, I couldn't find the PIN pad. Voice unlock works only with a number PIN lock.", this::endInteraction); break;
+                default: say("Boss, I couldn't type the PIN.", this::endInteraction);
+            }
+        }));
+    }
+
+    private void wrongUnlock(String msg) {
+        int left = VoiceUnlock.wrong(this);
+        remember("", "voice unlock: wrong (" + left + " tries left)");
+        say(left > 0 ? msg : msg + " Voice unlock is paused until you unlock the phone yourself.", this::endInteraction);
+    }
+
     /** Apps with an icon in the app drawer. */
     private boolean phoneLocked() {
         android.app.KeyguardManager km = (android.app.KeyguardManager) getSystemService(KEYGUARD_SERVICE);
@@ -1139,6 +1215,7 @@ public final class WakeWordService extends Service {
     }
 
     private void endInteraction() {
+        secretListen = false;
         main.removeCallbacks(watchdog);
         releaseRecognizer();
         afterSpeech = null;

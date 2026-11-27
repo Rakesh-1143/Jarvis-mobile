@@ -218,6 +218,7 @@ public final class AssistantSetupActivity extends Activity {
             Toast.makeText(this, "Tap \"Jarvis control\" (it may be under Installed apps or Downloaded apps)", Toast.LENGTH_LONG).show();
             try { startActivity(new Intent(android.provider.Settings.ACTION_ACCESSIBILITY_SETTINGS)); } catch (Exception ignored) { }
         });
+        voiceUnlockSection(sender);
         row("Background listening service", WakeWordService.running ? "Running" : "Not running", null);
         row("Open apps from background", JarvisVoiceInteractionService.instance != null ? "Ready (through the assistant)" : "Needs KALKI as default assistant", JarvisVoiceInteractionService.instance != null);
         PowerManager pm = (PowerManager) getSystemService(POWER_SERVICE);
@@ -371,6 +372,59 @@ public final class AssistantSetupActivity extends Activity {
 
     // ---- simple views ----
     private int dp(int v) { return Math.round(v * getResources().getDisplayMetrics().density); }
+
+    // ---------- voice unlock ----------
+
+    private void voiceUnlockSection(boolean control) {
+        section("Voice unlock");
+        String m = VoiceUnlock.mode(this);
+        String state = VoiceUnlock.MODE_SAY_PIN.equals(m) ? "On · you say your PIN out loud; nothing is saved"
+                : VoiceUnlock.MODE_SECRET.equals(m) ? "On · you say your secret password; the PIN is saved encrypted"
+                : "Off";
+        row("Unlock by voice (\"Hey Jarvis, unlock my phone\")", state + (control || VoiceUnlock.MODE_OFF.equals(m) ? "" : " · needs Jarvis control"),
+                VoiceUnlock.MODE_OFF.equals(m) ? null : control);
+        note("Works only with a number PIN lock. After a restart Android always asks for the PIN once. After "
+                + VoiceUnlock.MAX_WRONG + " wrong tries, voice unlock waits until you unlock the phone yourself.");
+        button("Use: say my PIN out loud", v -> confirm("Say your PIN out loud?",
+                "Jarvis will ask for your PIN and type what it hears. Nothing is saved. Anyone near you will hear your real PIN.",
+                () -> { VoiceUnlock.useSayPin(this); render(); }));
+        button(VoiceUnlock.MODE_SECRET.equals(m) ? "Change secret password or PIN" : "Use: a secret password", v -> secretDialog());
+        if (!VoiceUnlock.MODE_OFF.equals(m)) button("Turn off voice unlock", v -> { VoiceUnlock.turnOff(this); Toast.makeText(this, "Voice unlock is off. The saved PIN was deleted.", Toast.LENGTH_LONG).show(); render(); });
+    }
+
+    private void confirm(String title, String message, Runnable yes) {
+        new android.app.AlertDialog.Builder(this).setTitle(title).setMessage(message)
+                .setPositiveButton("Turn on", (d, w) -> yes.run()).setNegativeButton("Cancel", null).show();
+    }
+
+    private void secretDialog() {
+        LinearLayout box = new LinearLayout(this);
+        box.setOrientation(LinearLayout.VERTICAL);
+        box.setPadding(dp(20), dp(8), dp(20), 0);
+        android.widget.EditText word = new android.widget.EditText(this);
+        word.setHint("Secret password, e.g. blue mango");
+        word.setInputType(android.text.InputType.TYPE_CLASS_TEXT | android.text.InputType.TYPE_TEXT_VARIATION_PASSWORD);
+        android.widget.EditText pin = new android.widget.EditText(this);
+        pin.setHint("Your phone's lock screen PIN");
+        pin.setInputType(android.text.InputType.TYPE_CLASS_NUMBER | android.text.InputType.TYPE_NUMBER_VARIATION_PASSWORD);
+        android.widget.EditText pin2 = new android.widget.EditText(this);
+        pin2.setHint("PIN again");
+        pin2.setInputType(android.text.InputType.TYPE_CLASS_NUMBER | android.text.InputType.TYPE_NUMBER_VARIATION_PASSWORD);
+        box.addView(word); box.addView(pin); box.addView(pin2);
+        new android.app.AlertDialog.Builder(this)
+                .setTitle("Secret password")
+                .setMessage("Say this password to unlock. Jarvis keeps only a scrambled copy of it, and keeps the PIN encrypted in the phone's secure key store. Anyone who hears and repeats the password can unlock your phone.")
+                .setView(box)
+                .setPositiveButton("Save", (d, w) -> {
+                    String p1 = pin.getText().toString(), p2 = pin2.getText().toString();
+                    String err = !p1.equals(p2) ? "The two PINs are different." : VoiceUnlock.useSecret(this, word.getText().toString(), p1);
+                    word.setText(""); pin.setText(""); pin2.setText("");
+                    Toast.makeText(this, err == null ? "Voice unlock is on. Say \"Hey Jarvis, unlock my phone\"." : err, Toast.LENGTH_LONG).show();
+                    render();
+                })
+                .setNegativeButton("Cancel", null)
+                .show();
+    }
 
     private void title(String s) {
         TextView t = text(s, 24, TEXT); t.setTypeface(Typeface.DEFAULT_BOLD); list.addView(t);

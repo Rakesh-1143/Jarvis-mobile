@@ -71,7 +71,7 @@ jobs:
           curl -fsSL --retry 4 --retry-delay 5 -o "$RUNNER_TEMP/sherpa.aar" https://github.com/k2-fsa/sherpa-onnx/releases/download/v1.12.33/sherpa-onnx-1.12.33.aar
           echo "9b07a0a2faec52cd6e5ee2cf4759d4ad49f5a7d1e750f24e26e9e8074c5ae2c6  $RUNNER_TEMP/sherpa.aar" | sha256sum -c -
           rm -rf "$RUNNER_TEMP/sherpa" && mkdir "$RUNNER_TEMP/sherpa" && cd "$RUNNER_TEMP/sherpa" && unzip -q "$RUNNER_TEMP/sherpa.aar"
-          # Keep only the JNI library for our two ABIs; it uses the app's own libonnxruntime.so.
+          # Keep only the JNI library for arm ABIs (the app ships arm64 only unless JARVIS_ABIS says otherwise); it uses the app's own libonnxruntime.so.
           rm -rf jni/x86 jni/x86_64 jni/*/libonnxruntime.so jni/*/libsherpa-onnx-c-api.so jni/*/libsherpa-onnx-cxx-api.so
           mkdir -p "$GITHUB_WORKSPACE/android/app/libs"
           rm -f "$GITHUB_WORKSPACE/android/app/libs/sherpa-onnx.aar"
@@ -81,24 +81,31 @@ jobs:
       - name: Run unit tests
         run: gradle --no-daemon testDebugUnitTest
 
-      - name: Build debug APK
+      # Release build: smaller (unused library code removed), faster, and not debuggable.
+      # Same fixed signing key as before, so phones still show "Update".
+      - name: Build APK
         env:
           JARVIS_START_URL: ${{ inputs.JARVIS_START_URL || 'https://rakesh-1143.github.io/Jarvis-mobile/frontend/' }}
           # Always bigger than the last build, so phones offer "Update".
           JARVIS_VERSION_CODE: ${{ github.run_number }}0${{ github.run_attempt }}
-        run: gradle --no-daemon assembleDebug -PJARVIS_START_URL="$JARVIS_START_URL" -PJARVIS_VERSION_CODE="$JARVIS_VERSION_CODE"
+        run: gradle --no-daemon assembleRelease -PJARVIS_START_URL="$JARVIS_START_URL" -PJARVIS_VERSION_CODE="$JARVIS_VERSION_CODE"
 
-      - name: Check APK signature and version
+      - name: Check APK signature, version and size
         shell: bash
         run: |
           set -euo pipefail
+          APK=app/build/outputs/apk/release/app-release.apk
           BT="${ANDROID_HOME:-$ANDROID_SDK_ROOT}/build-tools/35.0.0"
-          "$BT/apksigner" verify --print-certs app/build/outputs/apk/debug/app-debug.apk
-          "$BT/aapt2" dump badging app/build/outputs/apk/debug/app-debug.apk | head -1
+          "$BT/apksigner" verify --print-certs "$APK"
+          "$BT/aapt2" dump badging "$APK" | head -1
+          if "$BT/aapt2" dump badging "$APK" | grep -q "application-debuggable"; then echo "::error::APK is debuggable"; exit 1; fi
+          ls -l "$APK"
+          unzip -l "$APK" | grep -E "lib/|classes" || true
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
+          # Name kept so existing install steps still find it; the file inside is now the release APK.
           name: jarvis-debug-apk
-          path: android/app/build/outputs/apk/debug/app-debug.apk
+          path: android/app/build/outputs/apk/release/app-release.apk
           if-no-files-found: error

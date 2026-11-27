@@ -44,6 +44,26 @@ public class TemplateMatcherTest {
         assertTrue(m.distance(take(randomPath(12), 1, 0.2f)) > m.threshold);
     }
 
+    /** The cached, streaming distance must give exactly the same numbers as the plain one. */
+    @Test public void cachedDistanceMatchesPlain() {
+        List<float[][]> examples = new ArrayList<>();
+        examples.add(take(randomPath(7), 1, 0.2f));
+        examples.add(take(randomPath(5), 2, 0.2f));
+        TemplateMatcher m = new TemplateMatcher(examples, 0.3f);
+        int span = m.span();
+        List<float[]> stream = new ArrayList<>();
+        float[] silence = randomPath(1)[0];
+        for (int step = 0; step < 80; step++) {
+            // Mix fresh frames with the same frame object repeated, as silence skipping does.
+            stream.add(step % 9 < 3 ? silence : randomPath(1)[0]);
+            int from = Math.max(0, stream.size() - span);
+            float[][] frames = stream.subList(from, stream.size()).toArray(new float[0][]);
+            float plain = Float.MAX_VALUE;
+            for (float[][] t : examples) plain = Math.min(plain, TemplateMatcher.dtwEndAligned(t, frames));
+            assertEquals(plain, m.distance(frames), 0f);
+        }
+    }
+
     @Test public void speechSpanFindsLoudPart() {
         float[] rms = {90, 95, 88, 92, 1500, 2000, 1800, 300, 90, 91, 89, 90};
         int[] s = VoiceTrainer.speechSpan(rms);

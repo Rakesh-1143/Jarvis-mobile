@@ -7,7 +7,7 @@ import java.util.regex.Pattern;
 /** Turns recognized words into one allowed action. Pure Java, unit-tested. */
 public final class VoiceCommand {
     public enum Type { OPEN_APP, SEND_MESSAGE, SEARCH, SCROLL, PLAY_ITEM, MEDIA, BACK, CALL, CALL_CONTROL, TIME, DATE, BATTERY, VOLUME, TORCH, ALARM, TIMER, SETTINGS, ASK_APP,
-        READ_NOTIFICATIONS, WHATSAPP_CALL, REMINDER, NOTE, READ_NOTES, CLEAR_NOTES, NAVIGATE, WEATHER, PHOTO, HELP, SET_NAME, SPEECH_SPEED, TAP, TYPE, HOME, RECENTS, NOTIFICATIONS, READ_SCREEN, REPEAT, SCREENSHOT, LOCK, CHANGE_VOICE,
+        READ_NOTIFICATIONS, WHATSAPP_CALL, REMINDER, NOTE, READ_NOTES, CLEAR_NOTES, NAVIGATE, WEATHER, PHOTO, HELP, SET_NAME, SPEECH_SPEED, TAP, TYPE, HOME, RECENTS, NOTIFICATIONS, READ_SCREEN, REPEAT, SCREENSHOT, LOCK, UNLOCK, CHANGE_VOICE,
         BRIEFING, NEXT_ALARM, CALENDAR, DND, RINGER, CALCULATE, MISSED_CALLS, CALL_BACK, REMEMBER, FORGET, READ_MEMORY, STOP_LISTENING, CANCEL, UNKNOWN }
 
     public final Type type;
@@ -163,6 +163,7 @@ public final class VoiceCommand {
     private static final Pattern REPEAT = Pattern.compile("^(?:repeat(?: that| it| again)?|say (?:that|it) again|what did you (?:just )?say|come again|pardon|sorry what)$");
     private static final Pattern SCREENSHOT = Pattern.compile("^(?:take |capture |grab )?(?:a )?screen ?shot(?: of (?:this|the screen))?$");
     private static final Pattern LOCK = Pattern.compile("^(?:lock (?:the |my )?(?:phone|screen|mobile|device)|lock it|screen lock|turn off (?:the )?screen)$");
+    private static final Pattern UNLOCK = Pattern.compile("^(?:unlock(?: (?:the |my )?(?:phone|screen|mobile|device))?(?: it| me)?|open (?:the |my )(?:phone|mobile|device)|unlock please)$");
     private static final Pattern BRIEFING = Pattern.compile("^(?:good (?:morning|afternoon|evening)(?: jarvis)?|(?:give me )?(?:my |a |the )?(?:daily |morning )?briefing|brief me|what(?:'s| is) my day(?: look(?:ing)? like)?|how(?:'s| is) my day(?: today)?|plan for today|what(?:'s| is) up today)$");
     private static final Pattern NEXT_ALARM = Pattern.compile("^(?:(?:when|what time) is |what(?:'s| is) )?(?:my )?next alarm$|^(?:what|which) alarms?(?: do i have| are set| is set)$|^do i have (?:an |any )?alarms?(?: set)?(?: for tomorrow)?$");
     private static final Pattern CALENDAR = Pattern.compile("^(?:what(?:'s| is)(?: on)?|read|show|tell me|check|whats on)\\s+my\\s+(?:calendar|schedule|agenda|events|meetings|plans)(?:\\s+(?:for\\s+)?(today|tomorrow))?$|^(?:do i have|any)\\s+(?:any\\s+)?(?:meetings|events|plans)(?:\\s+(today|tomorrow))?$|^(?:my\\s+)?(?:calendar|schedule|agenda)(?:\\s+(?:for\\s+)?(today|tomorrow))?$");
@@ -200,6 +201,7 @@ public final class VoiceCommand {
         if (REPEAT.matcher(t).matches()) return new VoiceCommand(Type.REPEAT, "");
         if (SCREENSHOT.matcher(t).matches()) return new VoiceCommand(Type.SCREENSHOT, "");
         if (LOCK.matcher(t).matches()) return new VoiceCommand(Type.LOCK, "");
+        if (UNLOCK.matcher(t).matches()) return new VoiceCommand(Type.UNLOCK, "");
         m = VOICE.matcher(t);
         if (m.matches()) return new VoiceCommand(Type.CHANGE_VOICE, m.group(1) != null ? "default" : "next");
         if (BRIEFING.matcher(t).matches()) return new VoiceCommand(Type.BRIEFING, "");

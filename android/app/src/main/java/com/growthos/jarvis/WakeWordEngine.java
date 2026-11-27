@@ -87,13 +87,23 @@ public final class WakeWordEngine implements AutoCloseable {
         features.clear();
         predictions = 0;
         for (int i = 0; i < MEL_WINDOW; i++) { float[] f = new float[MEL_BINS]; java.util.Arrays.fill(f, 1f); melFrames.add(f); }
-        Random r = new Random(7);
-        float[] noise = new float[16000 * 4];
-        for (int i = 0; i < noise.length; i++) noise[i] = r.nextInt(2001) - 1000;
-        float[][] spec = melspectrogram(noise);
-        for (int start = 0; start + MEL_WINDOW <= spec.length; start += 8) features.add(embedding(spec, start));
-        trim(features, FEATURE_MAX);
+        if (noiseFeatures == null) {
+            // Always the same numbers (fixed seed), so work them out once instead of on every
+            // restart of listening (which happens after each command): ~28 model runs saved each time.
+            Random r = new Random(7);
+            float[] noise = new float[16000 * 4];
+            for (int i = 0; i < noise.length; i++) noise[i] = r.nextInt(2001) - 1000;
+            float[][] spec = melspectrogram(noise, noise.length);
+            ArrayDeque<float[]> f = new ArrayDeque<>();
+            for (int start = 0; start + MEL_WINDOW <= spec.length; start += 8) f.add(embedding(spec, start));
+            trim(f, FEATURE_MAX);
+            noiseFeatures = f.toArray(new float[0][]);
+        }
+        Collections.addAll(features, noiseFeatures);
     }
+
+    /** Start-up features from noise; the arrays are never changed after they are made. */
+    private float[][] noiseFeatures;
 
     /** Processes one 80 ms chunk and returns the wake score (0..1). */
     public float process(short[] pcm) throws OrtException {
@@ -102,9 +112,7 @@ public final class WakeWordEngine implements AutoCloseable {
         System.arraycopy(raw, rawFilled - keep, raw, 0, keep);
         for (int i = 0; i < CHUNK; i++) raw[keep + i] = pcm[i];
         rawFilled = keep + CHUNK;
-        float[] input = new float[rawFilled];
-        System.arraycopy(raw, 0, input, 0, rawFilled);
-        Collections.addAll(melFrames, melspectrogram(input));
+        Collections.addAll(melFrames, melspectrogram(raw, rawFilled));
         trim(melFrames, MEL_MAX);
 
         double sum = 0;
@@ -134,11 +142,16 @@ public final class WakeWordEngine implements AutoCloseable {
         return predictions++ < WARMUP_PREDICTIONS ? 0f : score;
     }
 
-    private float[][] melspectrogram(float[] samples) throws OrtException {
-        try (OnnxTensor t = OnnxTensor.createTensor(env, FloatBuffer.wrap(samples), new long[]{1, samples.length});
+    /** Mel frames of the first {@code count} samples. Reads the output as one flat buffer instead of nested Java arrays. */
+    private float[][] melspectrogram(float[] samples, int count) throws OrtException {
+        try (OnnxTensor t = OnnxTensor.createTensor(env, FloatBuffer.wrap(samples, 0, count), new long[]{1, count});
              OrtSession.Result r = mel.run(Collections.singletonMap(melIn, t))) {
-            float[][] spec = ((float[][][][]) r.get(0).getValue())[0][0];
-            for (float[] row : spec) for (int k = 0; k < row.length; k++) row[k] = row[k] / 10f + 2f;
+            OnnxTensor out = (OnnxTensor) r.get(0);
+            long[] shape = out.getInfo().getShape(); // [1, 1, frames, 32]
+            int frames = (int) shape[2], bins = (int) shape[3];
+            FloatBuffer b = out.getFloatBuffer();
+            float[][] spec = new float[frames][bins];
+            for (float[] row : spec) { b.get(row); for (int k = 0; k < bins; k++) row[k] = row[k] / 10f + 2f; }
             return spec;
         }
     }
@@ -148,7 +161,10 @@ public final class WakeWordEngine implements AutoCloseable {
         for (int f = 0; f < MEL_WINDOW; f++) System.arraycopy(spec[start + f], 0, in, f * MEL_BINS, MEL_BINS);
         try (OnnxTensor t = OnnxTensor.createTensor(env, FloatBuffer.wrap(in), new long[]{1, MEL_WINDOW, MEL_BINS, 1});
              OrtSession.Result r = emb.run(Collections.singletonMap(embIn, t))) {
-            return ((float[][][][]) r.get(0).getValue())[0][0][0];
+            FloatBuffer b = ((OnnxTensor) r.get(0)).getFloatBuffer(); // [1, 1, 1, 96]
+            float[] f = new float[b.remaining()];
+            b.get(f);
+            return f;
         }
     }
 
@@ -158,7 +174,7 @@ public final class WakeWordEngine implements AutoCloseable {
         for (float[] f : features) { if (i++ >= skip) System.arraycopy(f, 0, in, (j++) * FEATURES, FEATURES); }
         try (OnnxTensor t = OnnxTensor.createTensor(env, FloatBuffer.wrap(in), new long[]{1, FEATURE_WINDOW, FEATURES});
              OrtSession.Result r = wake.run(Collections.singletonMap(wakeIn, t))) {
-            return ((float[][]) r.get(0).getValue())[0][0];
+            return ((OnnxTensor) r.get(0)).getFloatBuffer().get(0); // [1, 1]
         }
     }
 
